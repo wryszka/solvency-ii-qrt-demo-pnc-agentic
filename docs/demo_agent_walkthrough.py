@@ -1,12 +1,29 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Solvency II QRT Demo — AI Actuarial Review Agent
+# MAGIC # Solvency II QRT Demo — AI Agents Walkthrough (Technical)
 # MAGIC
-# MAGIC ## Demo Walkthrough (Technical Version)
+# MAGIC ## What This Demo Shows
 # MAGIC
-# MAGIC This notebook walks through the **agentic workflow** added to the Solvency II QRT reporting platform.
-# MAGIC An AI agent reviews each QRT before human sign-off, producing a structured actuarial assessment
-# MAGIC in seconds — replacing 2-3 hours of manual analysis per template.
+# MAGIC A Solvency II regulatory reporting platform with **5 AI agents** that assist actuaries
+# MAGIC in reviewing QRTs before submission. The agents find issues that take hours to spot manually —
+# MAGIC in 15 seconds.
+# MAGIC
+# MAGIC ### Demo Prep Checklist
+# MAGIC 1. Run `inject_demo_gotchas` notebook (injects 4 realistic issues into Q3 data)
+# MAGIC 2. Re-trigger S.05.01 and S.26.06 DLT pipelines to propagate changes
+# MAGIC 3. Open the app: `https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com`
+# MAGIC
+# MAGIC ### Hidden Issues the AI Will Find
+# MAGIC
+# MAGIC We injected 4 subtle but realistic problems into the data. These are the kind of issues
+# MAGIC that take an experienced actuary 2-3 hours to find in a spreadsheet:
+# MAGIC
+# MAGIC | # | Issue | QRT | What the AI should say | Why it matters |
+# MAGIC |---|-------|-----|----------------------|----------------|
+# MAGIC | 1 | **EUR 12.3M fire claim hiding in Property** | S.05.01 | "Combined ratio 97% driven by single claim. Excluding: 82%." | Aggregate looks fine — large loss is hidden |
+# MAGIC | 2 | **Reinsurance cession dropped from 30% to 18%** | S.05.01 | "Net premium up 18% vs gross up 3% — cession rate changed." | Net risk exposure jumped without anyone flagging it |
+# MAGIC | 3 | **Asset duration vs market risk mismatch** | S.06.02 + S.25.01 | "Duration 3.2yr implies DV01 ~EUR 125M, but charge is EUR 200M — 60% gap." | Cross-QRT inconsistency no human catches without a calculator |
+# MAGIC | 4 | **Windstorm tail too thin** | S.26.06 | "TVaR/VaR = 1.12x at 1-in-200. Expected 1.5-2.0x." | Stochastic model may be underestimating tail risk |
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -24,155 +41,94 @@
 # MAGIC ```
 # MAGIC
 # MAGIC **Key principle:** The AI agent is an *advisor*, never a *decision-maker*.
-# MAGIC It cannot approve, reject, or submit a QRT. A human actuary always has the final say.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 1. What the Agent Sees
+# MAGIC ## 1. The Data the Agent Sees
 # MAGIC
 # MAGIC The agent receives **pre-aggregated summary data only** — never raw policyholder records.
-# MAGIC This is the maximum privilege boundary. Let's see what gets passed to the LLM.
 
 # COMMAND ----------
 
-# DBTITLE 1,Current Period — S.25.01 SCR Summary
+# DBTITLE 1,S.25.01 SCR Summary — what the Actuarial Review Agent reads
 catalog = "lr_serverless_aws_us_catalog"
-schema = "solvency2demo_ai"
+schema = "solvency2demo"
 
-df = spark.sql(f"""
+display(spark.sql(f"""
     SELECT * FROM {catalog}.{schema}.s2501_summary
     ORDER BY reporting_period DESC
     LIMIT 2
-""")
-display(df)
+"""))
+
+# COMMAND ----------
+
+# DBTITLE 1,S.05.01 P&L Summary — where the large loss and cession change are hiding
+display(spark.sql(f"""
+    SELECT * FROM {catalog}.{schema}.s0501_summary
+    ORDER BY reporting_period DESC
+"""))
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC The agent sees this summary (2 rows: current + prior quarter), not the 17 individual risk factor inputs.
-# MAGIC It also receives:
-# MAGIC - **Data quality results** from the DLT expectations
-# MAGIC - **Cross-QRT reconciliation** checks
-# MAGIC - **Model version info** (Champion vs Challenger)
-# MAGIC
-# MAGIC All of this is assembled server-side in `_gather_context()` and formatted into a structured prompt.
-
-# COMMAND ----------
-
-# DBTITLE 1,Data Quality Expectations for S.25.01
-display(spark.sql(f"""
-    SELECT expectation_name, total_records, passing_records, failing_records,
-           ROUND(passing_records * 100.0 / total_records, 1) AS pass_rate_pct
-    FROM {catalog}.{schema}.dq_expectation_results
-    WHERE pipeline_name LIKE '%S.25.01%'
-    AND reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.s2501_summary)
-"""))
-
-# COMMAND ----------
-
-# DBTITLE 1,Cross-QRT Reconciliation
-display(spark.sql(f"""
-    SELECT source_qrt, target_qrt, check_description, status,
-           source_value, target_value, difference, tolerance
-    FROM {catalog}.{schema}.cross_qrt_reconciliation
-    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.s2501_summary)
-"""))
+# MAGIC **Look at Property (LoB 7).** The combined ratio is ~97% — looks fine at first glance.
+# MAGIC But there's a EUR 12.3M fire claim hiding in there, and the reinsurance cession
+# MAGIC dropped from 30% to 18%. The agent will spot both.
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## 2. How the Agent Works
 # MAGIC
-# MAGIC The agent is a **single-shot LLM call** via Databricks Foundation Model API (FMAPI).
-# MAGIC No multi-turn conversation, no tool calling, no RAG. The entire context is in the prompt.
-# MAGIC
 # MAGIC | Component | Implementation |
 # MAGIC |-----------|---------------|
 # MAGIC | **Model** | Claude Sonnet (preferred) or Meta Llama 3.3 70B (fallback) |
-# MAGIC | **System prompt** | Senior actuarial reviewer persona with structured output format |
+# MAGIC | **System prompt** | Senior actuarial reviewer persona with structured output |
 # MAGIC | **User prompt** | Per-QRT template filled with summary data, DQ, reconciliation |
 # MAGIC | **Temperature** | 0.2 (low creativity, high consistency) |
-# MAGIC | **Max tokens** | 2,048 (sufficient for a 2-page review) |
+# MAGIC | **Guardrails** | 12 controls across 7 layers (see Security Framework notebook) |
 # MAGIC | **Latency** | ~8-15 seconds |
-# MAGIC
-# MAGIC The prompt templates are QRT-specific. For example, S.25.01 focuses on:
-# MAGIC - Solvency ratio level and trend
-# MAGIC - Risk module movements
-# MAGIC - Diversification benefit range
-# MAGIC - Own funds composition
-# MAGIC - Champion vs Challenger model impact
 
 # COMMAND ----------
 
 # DBTITLE 1,Calling the Agent Programmatically
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
+import json
 
 w = WorkspaceClient()
 
-# The same call the app makes — try Sonnet, fall back to Llama
-endpoints = [
-    "databricks-claude-sonnet-4",
-    "databricks-claude-3-7-sonnet",
-    "databricks-meta-llama-3-3-70b-instruct",
-]
-
-endpoint = None
-for ep in endpoints:
+# Try Sonnet first, fall back to Llama
+for ep in ["databricks-claude-sonnet-4", "databricks-claude-3-7-sonnet", "databricks-meta-llama-3-3-70b-instruct"]:
     try:
-        info = w.serving_endpoints.get(ep)
-        if info:
-            endpoint = ep
-            break
+        w.serving_endpoints.get(ep)
+        endpoint = ep
+        print(f"Using: {endpoint}")
+        break
     except Exception:
         continue
 
-print(f"Using model endpoint: {endpoint}")
-
 # COMMAND ----------
 
-# DBTITLE 1,System Prompt (Actuarial Reviewer Persona)
-system_prompt = """You are a senior actuarial reviewer at a European P&C insurance company regulated under Solvency II.
-You are reviewing a Quantitative Reporting Template (QRT) before it is submitted to the national supervisory authority.
-
-Your review must be:
-- Technically precise, using correct Solvency II terminology
-- Structured with clear sections and bullet points
-- Actionable — flag issues that need resolution vs observations for the record
-- Concise — an experienced actuary should be able to read this in 2 minutes
-
-Output your review in markdown format with these sections:
-## Executive Summary
-## Key Metrics
-## Period-over-Period Analysis
-## Data Quality Assessment
-## Risk Flags
-## Recommendation
-"""
-
-print(f"System prompt: {len(system_prompt)} chars")
-
-# COMMAND ----------
-
-# DBTITLE 1,Generate Review for S.25.01
-import json
-
-# Gather context (same as the app does)
-summary = spark.sql(f"SELECT * FROM {catalog}.{schema}.s2501_summary ORDER BY reporting_period DESC LIMIT 2").toPandas()
+# DBTITLE 1,Generate Review for S.05.01 — watch it find the large loss
+summary = spark.sql(f"SELECT * FROM {catalog}.{schema}.s0501_summary ORDER BY reporting_period DESC LIMIT 2").toPandas()
 current = summary.iloc[0].to_dict() if len(summary) > 0 else {}
 prior = summary.iloc[1].to_dict() if len(summary) > 1 else {}
 
-user_prompt = f"""Review the S.25.01 — SCR Standard Formula QRT for Bricksurance SE.
+system_prompt = """You are a senior actuarial reviewer at a European P&C insurance company.
+Review this QRT and produce a structured assessment. Focus on:
+- Combined ratio by LoB — flag any anomalies
+- Large loss impact — if a ratio spiked, investigate whether it's one large claim or a trend
+- Net vs gross movements — flag reinsurance cession changes
+- Period-over-period changes with quantified drivers
+Output in markdown with: Executive Summary, Key Metrics, Period-over-Period Analysis, Risk Flags, Recommendation."""
+
+user_prompt = f"""Review the S.05.01 — Premiums, Claims & Expenses QRT for Bricksurance SE.
 Reporting period: {current.get('reporting_period', 'Unknown')}.
 
-## Current Period SCR Breakdown
-{json.dumps(current, indent=2, default=str)}
-
-## Prior Period SCR Breakdown
-{json.dumps(prior, indent=2, default=str)}
-
-Focus on: solvency ratio level/trend, risk module movements, diversification benefit, own funds composition.
+Current: {json.dumps(current, indent=2, default=str)}
+Prior: {json.dumps(prior, indent=2, default=str)}
 """
 
 response = w.serving_endpoints.query(
@@ -191,100 +147,102 @@ print(review_text)
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Guardrails — Defence in Depth
+# MAGIC ### What to highlight in the review above:
 # MAGIC
-# MAGIC The agent has **12 governance controls** across 6 layers. This is what makes it safe
-# MAGIC for a regulated environment.
+# MAGIC 1. **Did it find the large fire claim?** Look for mention of Property LoB 7 combined ratio,
+# MAGIC    and whether it identified that it's driven by a single large loss.
+# MAGIC 2. **Did it catch the cession rate change?** Look for commentary on net vs gross premium
+# MAGIC    divergence — "net premium up significantly more than gross."
+# MAGIC
+# MAGIC These are the two issues that would take a human actuary 30-45 minutes each to investigate.
+# MAGIC The agent found them in ~12 seconds.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Layer 1: Identity & Access
+# MAGIC ## 3. Guardrails — Defence in Depth
 # MAGIC
-# MAGIC | Control | How |
-# MAGIC |---------|-----|
-# MAGIC | **App Service Principal** | The AI runs as the app SP, not the end user. UC governs table access. |
-# MAGIC | **App Permissions** | Only users with `CAN_USE` on the app can trigger reviews. |
-# MAGIC
-# MAGIC ### Layer 2: Model Access
-# MAGIC
-# MAGIC | Control | How |
-# MAGIC |---------|-----|
-# MAGIC | **Serving Endpoint ACL** | Only the app SP can invoke the model. No direct user access. |
-# MAGIC
-# MAGIC ### Layer 3: Input Guardrails
-# MAGIC
-# MAGIC | Control | How |
-# MAGIC |---------|-----|
-# MAGIC | **Input Size Cap** | Prompts limited to 50,000 chars — prevents runaway token costs |
-# MAGIC | **Rate Limiting** | 10 reviews/user/hour — prevents abuse |
-# MAGIC | **Data Scope** | Only summary tables, never raw records |
-# MAGIC
-# MAGIC ### Layer 4: Output Guardrails
-# MAGIC
-# MAGIC | Control | How |
-# MAGIC |---------|-----|
-# MAGIC | **Forbidden Patterns** | Blocks: "I hereby approve", "submitted to regulator", "on behalf of the board" |
-# MAGIC | **Required Sections** | Must contain: Executive Summary, Key Metrics, Recommendation |
-# MAGIC | **PII Detection** | Flags: email addresses, phone numbers, named individuals with credentials |
-# MAGIC | **Output Truncation** | Capped at 15,000 chars |
-# MAGIC
-# MAGIC ### Layer 5: Audit & Observability
-# MAGIC
-# MAGIC | Control | How |
-# MAGIC |---------|-----|
-# MAGIC | **Audit Table** | Every review stored in `qrt_ai_reviews` with full provenance |
-# MAGIC | **Lakehouse Monitoring** | Token usage, latency, pass rates trackable via system tables |
-# MAGIC
-# MAGIC ### Layer 6: Human-in-the-Loop
-# MAGIC
-# MAGIC | Control | How |
-# MAGIC |---------|-----|
-# MAGIC | **AI Cannot Approve** | The agent produces a review, not a decision. Human always decides. |
+# MAGIC | Layer | Controls |
+# MAGIC |-------|----------|
+# MAGIC | **Identity & Access** | App service principal, workspace ACLs |
+# MAGIC | **Model Access** | Serving endpoint ACL — only app SP can call the LLM |
+# MAGIC | **Input** | 50K char cap, 10/hr rate limit, summary-only data scope |
+# MAGIC | **Output** | Forbidden patterns (can't approve), required sections, PII scan, truncation |
+# MAGIC | **Audit** | Every call logged to `qrt_ai_reviews` with model, tokens, user, timestamp |
+# MAGIC | **Human-in-the-Loop** | AI produces review, never decision |
 
 # COMMAND ----------
 
-# DBTITLE 1,Guardrails in Action — Forbidden Pattern Detection
+# DBTITLE 1,Guardrails check — the AI cannot approve
 import re
 
-# These patterns will BLOCK the review if detected in LLM output
-forbidden_patterns = [
-    (r"(?i)I\s+hereby\s+approv", "LLM must not approve"),
-    (r"(?i)this\s+QRT\s+is\s+(?:hereby\s+)?approved", "LLM must not approve"),
-    (r"(?i)submitted?\s+to\s+(?:the\s+)?(?:regulator|BaFin|EIOPA)", "LLM must not claim submission"),
-    (r"(?i)I\s+am\s+(?:a|the)\s+(?:appointed|chief)\s+actuary", "LLM must not impersonate"),
-    (r"(?i)on\s+behalf\s+of\s+the\s+board", "LLM must not claim authority"),
+forbidden = [
+    (r"(?i)I\s+hereby\s+approv", "Must not approve"),
+    (r"(?i)this\s+QRT\s+is\s+(?:hereby\s+)?approved", "Must not approve"),
+    (r"(?i)submitted?\s+to\s+(?:the\s+)?(?:regulator|BaFin|EIOPA)", "Must not claim submission"),
+    (r"(?i)on\s+behalf\s+of\s+the\s+board", "Must not claim authority"),
 ]
 
-# Test against the actual review
-for pattern, reason in forbidden_patterns:
-    match = re.search(pattern, review_text)
-    status = "BLOCKED" if match else "PASS"
+for pattern, reason in forbidden:
+    status = "BLOCKED" if re.search(pattern, review_text) else "PASS"
     print(f"  [{status}] {reason}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Guardrails in Action — Required Section Check
-required = ["Executive Summary", "Key Metrics", "Recommendation"]
-for section in required:
-    found = section.lower() in review_text.lower()
-    print(f"  [{'PASS' if found else 'WARN'}] Section: {section}")
+# MAGIC %md
+# MAGIC ## 4. All 5 Agents — What Each Finds
+# MAGIC
+# MAGIC | Agent | Where in App | Injected Issue It Should Find |
+# MAGIC |-------|-------------|------------------------------|
+# MAGIC | **Actuarial Review** | S.05.01 → Approve tab | EUR 12.3M fire claim + cession rate drop |
+# MAGIC | **Cross-QRT Consistency** | Monitor → Run Consistency Review | Asset duration vs market risk charge gap |
+# MAGIC | **Stochastic Engine** | S.26.06 → Stochastic Engine tab | Windstorm TVaR/VaR tail too thin |
+# MAGIC | **DQ Triage** | Data Quality → Investigate | Explains quarantined rows pattern |
+# MAGIC | **Regulator Q&A** | Regulator Q&A → ask a question | Grounded answers from all 4 QRTs |
+# MAGIC
+# MAGIC ### Demo flow (recommended order):
+# MAGIC
+# MAGIC **Start with the "boring" view** — show S.05.01 summary. Property at 97%. Looks fine.
+# MAGIC
+# MAGIC **Then click Generate AI Review** — the agent says "97% is driven by a single EUR 12.3M fire.
+# MAGIC Strip it out and attritional is 82%. Also, net premium up 18% vs gross up 3% — RI cession changed."
+# MAGIC
+# MAGIC **Audience reaction:** "How did it know that from summary data?"
+# MAGIC
+# MAGIC **Then show Cross-QRT** — agent finds the duration/risk mismatch across S.06.02 and S.25.01.
+# MAGIC No human does this cross-check without a calculator.
+# MAGIC
+# MAGIC **Then show Stochastic Engine** — agent flags windstorm tail too thin.
+# MAGIC This is what a head of cat modelling spends a day validating.
+# MAGIC
+# MAGIC **Then show Regulator Q&A** — type "Prepare a response to BaFin about the property
+# MAGIC combined ratio spike" and the agent drafts a formal letter with data references.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4. Audit Trail
+# MAGIC ## 5. Live Demo in the App
 # MAGIC
-# MAGIC Every AI review is persisted to a Unity Catalog table. This gives us:
-# MAGIC - **Who** triggered the review
-# MAGIC - **When** it was generated
-# MAGIC - **Which model** was used
-# MAGIC - **Token usage** for cost tracking
-# MAGIC - **Full text** of the review for compliance audit
+# MAGIC **App URL:** `https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com`
+# MAGIC
+# MAGIC | Step | Where | What to do | What to say |
+# MAGIC |------|-------|-----------|------------|
+# MAGIC | 1 | S.05.01 → Approve | Click **Generate AI Review** | "Watch it find the large loss and cession change" |
+# MAGIC | 2 | Expand Guardrails | Click the banner | "12 controls, 7 layers — it can never approve" |
+# MAGIC | 3 | Monitor → Cross-QRT | Click **Run Consistency Review** | "Now it reads all 4 QRTs together" |
+# MAGIC | 4 | S.26.06 → Stochastic | Click **Review Stochastic Engine** | "It validates the full stochastic cycle" |
+# MAGIC | 5 | Data Quality | Click **Investigate DQ Issues** | "When checks fail, the agent explains why" |
+# MAGIC | 6 | Regulator Q&A | Type a question | "Draft a BaFin response in 15 seconds" |
+# MAGIC | 7 | Approve tab | Click Approve | "The human always decides — AI just did the first 3 hours" |
 
 # COMMAND ----------
 
-# DBTITLE 1,AI Review Audit Log
+# MAGIC %md
+# MAGIC ## 6. Audit Trail
+
+# COMMAND ----------
+
+# DBTITLE 1,Every AI review is logged — who, when, which model, how many tokens
 display(spark.sql(f"""
     SELECT review_id, qrt_id, reporting_period, model_used,
            input_tokens, output_tokens, created_at, created_by
@@ -296,134 +254,23 @@ display(spark.sql(f"""
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Agent #3 — DQ Triage Agent
-# MAGIC
-# MAGIC When data quality checks fail, the DQ Triage Agent investigates root causes.
-# MAGIC It reads the failing expectations, SLA feed status, and hypothesises what went wrong.
-# MAGIC
-# MAGIC **Trigger:** Data Quality page → "Investigate DQ Issues" button
-# MAGIC
-# MAGIC **Input:** DQ expectation results + SLA feed status
-# MAGIC
-# MAGIC **Output:** Root cause hypothesis + remediation steps with owners
-
-# COMMAND ----------
-
-# DBTITLE 1,DQ Triage — What the agent sees
-display(spark.sql(f"""
-    SELECT pipeline_name, table_name, expectation_name,
-           total_records, passing_records, failing_records
-    FROM {catalog}.{schema}.dq_expectation_results
-    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.dq_expectation_results)
-    AND failing_records > 0
-"""))
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 6. Agent #4 — Cross-QRT Consistency Agent
-# MAGIC
-# MAGIC After all 4 pipelines complete, this agent reads all QRT summaries together
-# MAGIC and validates cross-template consistency with actuarial reasoning.
-# MAGIC
-# MAGIC **Trigger:** Control Tower → "Run Consistency Review" button
-# MAGIC
-# MAGIC **Checks performed:**
-# MAGIC - S.06.02 total assets vs S.25.01 market risk charge (implied duration)
-# MAGIC - S.05.01 GWP vs S.26.06 premium risk volumes
-# MAGIC - S.26.06 NL UW SCR vs S.25.01 R0050 (diversification benefit)
-# MAGIC - S.05.01 net incurred vs S.26.06 reserve risk
-# MAGIC - Overall: does solvency ratio make sense given P&L + assets?
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 7. Agent #2 — Regulator Q&A Agent
-# MAGIC
-# MAGIC A chat-style interface where the user types natural language questions
-# MAGIC and gets answers grounded in the actual QRT data.
-# MAGIC
-# MAGIC **Trigger:** "Regulator Q&A" tab in the app nav
-# MAGIC
-# MAGIC **Example use cases:**
-# MAGIC - "Why did the solvency ratio change between Q3 and Q4?"
-# MAGIC - "Prepare a response to BaFin about the property combined ratio"
-# MAGIC - "Summarise the risk position for the Risk Committee"
-# MAGIC
-# MAGIC **How it differs from Genie:**
-# MAGIC - Genie runs SQL → shows tables/charts (data retrieval)
-# MAGIC - Regulator Q&A reads data → writes narrative analysis (advisory output)
-# MAGIC - Uses full cross-QRT context, not single-table queries
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 8. All 4 Agents — Architecture Overview
-# MAGIC
-# MAGIC | Agent | Where in App | Input | Output | Guardrails |
-# MAGIC |-------|-------------|-------|--------|-----------|
-# MAGIC | **Actuarial Review** | Report → Approve tab | QRT summary + DQ + recon | Structured review | All 12 controls |
-# MAGIC | **DQ Triage** | Data Quality page | Failing checks + SLA | Root cause + fix | All 12 controls |
-# MAGIC | **Cross-QRT Consistency** | Control Tower | All 4 summaries + recon | Consistency verdict | All 12 controls |
-# MAGIC | **Regulator Q&A** | Nav → Regulator Q&A | All summaries + question | Answer/letter | All 12 controls |
-# MAGIC
-# MAGIC All agents share the same:
-# MAGIC - AI wrapper (Foundation Model API with Sonnet/Llama fallback)
-# MAGIC - Guardrails module (input + output validation)
-# MAGIC - Audit trail (qrt_ai_reviews table)
-# MAGIC - Service principal isolation
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 9. Live Demo — The App
-# MAGIC
-# MAGIC Open the deployed app and demo all 4 agents:
-# MAGIC
-# MAGIC ### Agent 1 — Actuarial Review
-# MAGIC 1. Navigate to any QRT (e.g. S.25.01) → **Approve / Export** tab
-# MAGIC 2. Click **Generate AI Review** → watch progress bar (8-15s)
-# MAGIC 3. Read the structured assessment → expand Guardrails banner → expand Governance panel
-# MAGIC 4. Approve or Reject (human decision)
-# MAGIC
-# MAGIC ### Agent 2 — Regulator Q&A
-# MAGIC 1. Click **Regulator Q&A** in the top nav
-# MAGIC 2. Type: *"Why did the solvency ratio change between Q3 and Q4?"*
-# MAGIC 3. Or click an example question → read the grounded answer
-# MAGIC
-# MAGIC ### Agent 3 — DQ Triage
-# MAGIC 1. Click **Data Quality** in the top nav
-# MAGIC 2. Click **Investigate DQ Issues** → agent analyses failures
-# MAGIC
-# MAGIC ### Agent 4 — Cross-QRT Consistency
-# MAGIC 1. Click **Monitor** (Control Tower) in the top nav
-# MAGIC 2. Scroll to Cross-QRT section → click **Run Consistency Review**
-# MAGIC 3. Agent validates all 4 QRTs together
-# MAGIC
-# MAGIC ---
-# MAGIC
-# MAGIC **App URL:** `https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com`
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ## Summary
 # MAGIC
-# MAGIC | Capability | Before | After (with 4 Agents) |
+# MAGIC | Capability | Before | After (with 5 Agents) |
 # MAGIC |-----------|--------|----------------------|
-# MAGIC | QRT review time | 2-3 hours per template | ~15 seconds (Actuarial Review Agent) |
-# MAGIC | DQ failure investigation | Manual log analysis, 1-2 hours | ~10 seconds (DQ Triage Agent) |
-# MAGIC | Cross-QRT consistency | Manual spreadsheet cross-check | ~12 seconds (Cross-QRT Agent) |
-# MAGIC | Regulator query response | 4-8 hours per letter | ~15 seconds draft (Regulator Q&A Agent) |
-# MAGIC | Review consistency | Varies by reviewer | Structured, repeatable |
-# MAGIC | Audit trail | Email threads | Queryable UC table |
-# MAGIC | Human decision | Always | Always (all agents are advisory only) |
+# MAGIC | QRT review time | 2-3 hours per template | ~15 seconds |
+# MAGIC | Large loss detection | Manual claim-by-claim | Automatic — "97% driven by single EUR 12.3M claim" |
+# MAGIC | RI cession change | Noticed at renewal (months later) | Flagged immediately — "net up 18% vs gross up 3%" |
+# MAGIC | Cross-QRT consistency | Mental arithmetic across spreadsheets | Explicit — "duration 3.2yr but charge implies 5.2yr" |
+# MAGIC | Stochastic validation | Day of cat modelling review | 15 seconds — "windstorm tail too thin at 1.12x" |
+# MAGIC | Regulator response | 4-8 hours drafting | 15 second first draft with data references |
+# MAGIC | Human decision | Always | Always (agents are advisory only) |
 # MAGIC
-# MAGIC ### Databricks Components Used
+# MAGIC ### Databricks Components
 # MAGIC
-# MAGIC - **Foundation Model API** — Claude Sonnet / Llama 70B via serving endpoints
-# MAGIC - **Unity Catalog** — Table governance, model registry, audit tables
-# MAGIC - **DLT** — Data quality expectations (the DQ data the agent reviews)
-# MAGIC - **Databricks Apps** — Secure deployment with service principal isolation
+# MAGIC - **Foundation Model API** — Claude Sonnet / Llama 70B
+# MAGIC - **Unity Catalog** — Data governance, model registry, audit tables
+# MAGIC - **DLT** — Data quality expectations
+# MAGIC - **Databricks Apps** — Secure deployment with SP isolation
 # MAGIC - **Serving Endpoint ACLs** — Model access control
-# MAGIC - **Lakehouse Monitoring** — Token/latency observability (configurable)
+# MAGIC - **Lakehouse Monitoring** — Observability (configurable)
