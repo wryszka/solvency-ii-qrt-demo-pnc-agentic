@@ -175,7 +175,10 @@ fi
 # Step 3b: Deploy DAB bundle (DLT pipelines + workflow jobs)
 echo ">> Deploying DAB bundle (DLT pipelines + jobs)..."
 rm -rf "${SCRIPT_DIR}/.databricks/bundle/dev/sync-snapshots" "${SCRIPT_DIR}/.databricks/bundle/dev/fileset-snapshots" 2>/dev/null
-databricks bundle deploy --profile "$PROFILE" 2>&1 | while read -r line; do echo "   $line"; done
+databricks bundle deploy --profile "$PROFILE" \
+    --var "catalog_name=$CATALOG" \
+    --var "schema_name=$SCHEMA" \
+    2>&1 | while read -r line; do echo "   $line"; done
 
 # Step 3c: Register Standard Formula model
 echo ">> Registering Standard Formula model..."
