@@ -23,7 +23,7 @@ def get_workspace_client() -> WorkspaceClient:
 
 
 def get_catalog() -> str:
-    return os.getenv("CATALOG_NAME", "lr_serverless_aws_us_catalog")
+    return os.getenv("CATALOG_NAME", "main")
 
 
 def get_schema() -> str:

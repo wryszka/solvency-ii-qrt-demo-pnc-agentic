@@ -84,9 +84,15 @@
 
 # COMMAND ----------
 
-# DBTITLE 1,First — the data looks normal at a glance
-catalog = "lr_serverless_aws_us_catalog"
+# DBTITLE 1,Configure — set your catalog here
+dbutils.widgets.text("catalog_name", "main")
+catalog = dbutils.widgets.get("catalog_name")
 schema = "solvency2demo_agentic"
+print(f"Using: {catalog}.{schema}")
+
+# COMMAND ----------
+
+# DBTITLE 1,First — the data looks normal at a glance
 
 display(spark.sql(f"""
     SELECT lob_name, gross_written, net_earned, net_incurred,

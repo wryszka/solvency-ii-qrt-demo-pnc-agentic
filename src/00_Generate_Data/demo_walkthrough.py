@@ -120,7 +120,7 @@
 
 # COMMAND ----------
 
-CATALOG = "lr_serverless_aws_us_catalog"
+CATALOG = "main"
 SCHEMA = "solvency2demo_ai"
 
 spark.sql(f"USE CATALOG {CATALOG}")

@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 try:
     catalog = dbutils.widgets.get("catalog_name")
 except Exception:
-    catalog = "lr_serverless_aws_us_catalog"
+    catalog = "main"
 try:
     schema = dbutils.widgets.get("schema_name")
 except Exception:

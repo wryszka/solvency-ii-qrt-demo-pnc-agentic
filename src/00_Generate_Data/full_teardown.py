@@ -24,7 +24,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog_name", "lr_serverless_aws_us_catalog", "Catalog")
+dbutils.widgets.text("catalog_name", "main", "Catalog")
 dbutils.widgets.text("schema_name", "solvency2demo_ai", "Schema")
 dbutils.widgets.text("app_name", "solvency2-qrt-ai", "App Name")
 dbutils.widgets.dropdown("confirm", "no", ["no", "yes"], "Confirm teardown?")

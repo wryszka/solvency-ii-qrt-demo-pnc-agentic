@@ -215,9 +215,14 @@
 
 # COMMAND ----------
 
-# DBTITLE 1,Verify: Audit table exists and is populated
-catalog = "lr_serverless_aws_us_catalog"
+# DBTITLE 1,Configure — set your catalog here
+dbutils.widgets.text("catalog_name", "main")
+catalog = dbutils.widgets.get("catalog_name")
 schema = "solvency2demo_agentic"
+
+# COMMAND ----------
+
+# DBTITLE 1,Verify: Audit table exists and is populated
 
 display(spark.sql(f"""
     SELECT review_id, qrt_id, model_used, input_tokens, output_tokens,

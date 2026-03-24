@@ -68,9 +68,15 @@
 
 # COMMAND ----------
 
-# DBTITLE 1,S.25.01 SCR Summary — what the Actuarial Review Agent reads
-catalog = "lr_serverless_aws_us_catalog"
+# DBTITLE 1,Configure — set your catalog here
+dbutils.widgets.text("catalog_name", "main")
+catalog = dbutils.widgets.get("catalog_name")
 schema = "solvency2demo_agentic"
+print(f"Using: {catalog}.{schema}")
+
+# COMMAND ----------
+
+# DBTITLE 1,S.25.01 SCR Summary — what the Actuarial Review Agent reads
 
 display(spark.sql(f"""
     SELECT * FROM {catalog}.{schema}.3_qrt_s2501_summary

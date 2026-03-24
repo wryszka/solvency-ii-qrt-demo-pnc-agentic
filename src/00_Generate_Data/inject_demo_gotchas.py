@@ -24,7 +24,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("catalog_name", "lr_serverless_aws_us_catalog")
+dbutils.widgets.text("catalog_name", "main")
 dbutils.widgets.text("schema_name", "solvency2demo_agentic")
 dbutils.widgets.text("target_period", "2025-Q3")
 

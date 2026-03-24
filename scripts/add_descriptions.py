@@ -5,7 +5,7 @@ import subprocess
 import json
 import sys
 
-CATALOG = "lr_serverless_aws_us_catalog"
+CATALOG = "main"
 SCHEMA = "solvency2demo_ai"
 WAREHOUSE_ID = "c80acfa212bf1166"
 PROFILE = "DEFAULT"
