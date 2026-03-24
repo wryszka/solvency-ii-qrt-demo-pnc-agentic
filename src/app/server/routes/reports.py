@@ -1214,15 +1214,20 @@ async def stochastic_engine_review():
         except Exception:
             run_log = []
 
-        # Stochastic results — by LoB and return period
+        # Stochastic results — aggregated by LoB at key return periods
         try:
             results = await execute_query(f"""
-                SELECT lob_code, lob_name, peril, return_period,
-                       var_gross_eur, var_net_eur, tvar_net_eur,
-                       num_simulations, model_version
+                SELECT lob_code, lob_name,
+                       SUM(CASE WHEN return_period = 200 THEN var_net_eur END) AS var_net_1in200,
+                       SUM(CASE WHEN return_period = 200 THEN tvar_net_eur END) AS tvar_net_1in200,
+                       SUM(CASE WHEN return_period = 200 THEN var_gross_eur END) AS var_gross_1in200,
+                       COUNT(DISTINCT peril) AS num_perils,
+                       MAX(num_simulations) AS simulations,
+                       MAX(model_version) AS model_version
                 FROM {fqn('igloo_results')}
                 WHERE reporting_period = '{reporting_period}'
-                ORDER BY lob_code, return_period
+                GROUP BY lob_code, lob_name
+                ORDER BY lob_code
             """)
         except Exception:
             results = []
