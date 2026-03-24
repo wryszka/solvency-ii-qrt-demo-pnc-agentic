@@ -4,36 +4,62 @@
 # MAGIC
 # MAGIC A regulatory reporting platform with **5 AI agents** that review QRTs before human sign-off.
 # MAGIC The agents find issues that take actuaries hours to spot — in 15 seconds.
-# MAGIC
-# MAGIC ---
-# MAGIC
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Folders
-# MAGIC
-# MAGIC | Folder | Contents | Link |
-# MAGIC |--------|----------|------|
-# MAGIC | **00_Generate_Data** | Data generation, setup guide, demo prep | [Open folder](./00_Generate_Data) |
-# MAGIC | **01_QRT_S0602_Assets** | DLT pipeline — S.06.02 List of Assets | [Open folder](./01_QRT_S0602_Assets) |
-# MAGIC | **02_QRT_S0501_PnL** | DLT pipeline — S.05.01 Premiums, Claims & Expenses | [Open folder](./02_QRT_S0501_PnL) |
-# MAGIC | **03_QRT_S2501_SCR** | DLT pipeline + MLflow model — S.25.01 SCR | [Open folder](./03_QRT_S2501_SCR) |
-# MAGIC | **04_QRT_S2606_NL_Risk** | DLT pipeline + stochastic engine — S.26.06 NL Risk | [Open folder](./04_QRT_S2606_NL_Risk) |
-# MAGIC | **05_AI_Agents** | Demo scripts, ELI5 version, security framework | [Open folder](./05_AI_Agents) |
-# MAGIC
-# MAGIC ---
-# MAGIC
+
+# COMMAND ----------
+
+# Build clickable links dynamically from the current notebook path
+import os
+
+nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+base = nb_path.rsplit("/", 1)[0]
+host = spark.conf.get("spark.databricks.workspaceUrl", "")
+
+def ws_link(subpath, label=None):
+    """Generate a workspace link."""
+    return f"[{label or subpath}](https://{host}#workspace{base}/{subpath})"
+
+folders_md = f"""
+| Folder | Contents | Link |
+|--------|----------|------|
+| **00_Generate_Data** | Data generation, setup guide, demo prep | {ws_link("00_Generate_Data")} |
+| **01_QRT_S0602_Assets** | DLT pipeline — S.06.02 List of Assets | {ws_link("01_QRT_S0602_Assets")} |
+| **02_QRT_S0501_PnL** | DLT pipeline — S.05.01 Premiums, Claims & Expenses | {ws_link("02_QRT_S0501_PnL")} |
+| **03_QRT_S2501_SCR** | DLT pipeline + MLflow model — S.25.01 SCR | {ws_link("03_QRT_S2501_SCR")} |
+| **04_QRT_S2606_NL_Risk** | DLT pipeline + stochastic engine — S.26.06 NL Risk | {ws_link("04_QRT_S2606_NL_Risk")} |
+| **05_AI_Agents** | Demo scripts, ELI5 version, security framework | {ws_link("05_AI_Agents")} |
+"""
+
+displayHTML(folders_md.replace("|", "</td><td>").replace("\n|", "\n<tr><td>"))
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Quick Start
-# MAGIC
-# MAGIC | Step | What to do | Notebook |
-# MAGIC |------|-----------|----------|
-# MAGIC | 1 | **Read the full setup & demo guide** | [setup_guide_and_demo_script](./00_Generate_Data/setup_guide_and_demo_script) |
-# MAGIC | 2 | **Generate Q1-Q3 data** (~6 min) | [bootstrap_archive](./00_Generate_Data/bootstrap_archive) |
-# MAGIC | 3 | **Inject hidden issues for demo** | [inject_demo_gotchas](./00_Generate_Data/inject_demo_gotchas) |
-# MAGIC | 4 | **Run the technical demo** | [demo_agent_walkthrough](./05_AI_Agents/demo_agent_walkthrough) |
-# MAGIC | 5 | **Or the simplified version** | [demo_agent_eli5](./05_AI_Agents/demo_agent_eli5) |
-# MAGIC | 6 | **Review security controls** | [agentic_security_framework](./05_AI_Agents/agentic_security_framework) |
-# MAGIC | 7 | **Open the app** | [solvency2-qrt-ai](https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com) |
-# MAGIC
-# MAGIC ---
-# MAGIC
+
+# COMMAND ----------
+
+quick_md = f"""
+| Step | What to do | Notebook |
+|------|-----------|----------|
+| 1 | **Read the full setup & demo guide** | {ws_link("00_Generate_Data/setup_guide_and_demo_script", "setup_guide_and_demo_script")} |
+| 2 | **Generate Q1-Q3 data** (~6 min) | {ws_link("00_Generate_Data/bootstrap_archive", "bootstrap_archive")} |
+| 3 | **Inject hidden issues for demo** | {ws_link("00_Generate_Data/inject_demo_gotchas", "inject_demo_gotchas")} |
+| 4 | **Run the technical demo** | {ws_link("05_AI_Agents/demo_agent_walkthrough", "demo_agent_walkthrough")} |
+| 5 | **Or the simplified version** | {ws_link("05_AI_Agents/demo_agent_eli5", "demo_agent_eli5")} |
+| 6 | **Review security controls** | {ws_link("05_AI_Agents/agentic_security_framework", "agentic_security_framework")} |
+| 7 | **Open the app** | [solvency2-qrt-ai](https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com) |
+"""
+
+displayHTML(quick_md.replace("|", "</td><td>").replace("\n|", "\n<tr><td>"))
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Data Schema (`solvency2demo_agentic`)
 # MAGIC
 # MAGIC Tables use numbered prefixes — they sort in pipeline order in Unity Catalog:
