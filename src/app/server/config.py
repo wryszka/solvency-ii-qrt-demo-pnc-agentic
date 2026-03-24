@@ -27,7 +27,7 @@ def get_catalog() -> str:
 
 
 def get_schema() -> str:
-    return os.getenv("SCHEMA_NAME", "solvency2demo_ai")
+    return os.getenv("SCHEMA_NAME", "solvency2demo")
 
 
 def get_warehouse_id() -> str:
