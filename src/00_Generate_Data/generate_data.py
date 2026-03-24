@@ -274,7 +274,7 @@ if not _cp_exists or mode == "full_reset":
     )
     rating_weights /= rating_weights.sum()
 
-    1_raw_counterparties = []
+    counterparties = []
     for i in range(500):
         first = _corp_first[rng.randint(len(_corp_first))]
         mid = _corp_mid[rng.randint(len(_corp_mid))]
@@ -282,7 +282,7 @@ if not _cp_exists or mode == "full_reset":
         country = countries_pool[rng.randint(len(countries_pool))]
         rating = rng.choice(SP_RATINGS, p=rating_weights)
 
-        1_raw_counterparties.append({
+        counterparties.append({
             "counterparty_id": f"CP{i+1:05d}",
             "counterparty_name": f"{first} {mid} {suffix}",
             "lei": make_lei(f"cp_{i}"),
@@ -294,7 +294,7 @@ if not _cp_exists or mode == "full_reset":
             "is_regulated": bool(rng.random() < 0.7),
         })
 
-    write_table(pd.DataFrame(1_raw_counterparties), "1_raw_counterparties",
+    write_table(pd.DataFrame(counterparties), "1_raw_counterparties",
                 "Master counterparty register — issuers, reinsurers, banks")
 else:
     print("  counterparties: already exists, skipping")
@@ -537,14 +537,14 @@ _pol_exists = spark.catalog.tableExists(f"{catalog}.{schema}.`1_raw_policies`")
 
 if not _pol_exists or mode == "full_reset":
     N_POLICIES = 20000
-    1_raw_policies = []
+    policies = []
     for i in range(N_POLICIES):
         lob = LOB_CONFIG[rng.randint(len(LOB_CONFIG))]
         inception = random_date(date(2023,1,1), date(2025,9,30))[0]
         expiry = inception + timedelta(days=365)
         gwp = to_eur(rng.lognormal(mean=9.5, sigma=1.2) * GWP_SHARES[lob["code"]])
 
-        1_raw_policies.append({
+        policies.append({
             "policy_id": f"POL{i+1:06d}",
             "lob_code": lob["code"],
             "lob_name": lob["name"],
@@ -556,7 +556,7 @@ if not _pol_exists or mode == "full_reset":
             "status": rng.choice(["active","active","active","lapsed","cancelled"], p=[0.70,0.15,0.05,0.05,0.05]),
         })
 
-    write_table(pd.DataFrame(1_raw_policies), "1_raw_policies", "Policy register — all active and historical 1_raw_policies")
+    write_table(pd.DataFrame(policies), "1_raw_policies", "Policy register — all active and historical policies")
 else:
     print("  policies: already exists, skipping")
 
@@ -570,7 +570,7 @@ else:
 # COMMAND ----------
 
 quarterly_gwp = TOTAL_GWP_M * 1e6 / 4 * seasonal * growth
-1_raw_premiums = []
+premiums = []
 
 for lob in LOB_CONFIG:
     lob_gwp = quarterly_gwp * lob["gwp_share"]
@@ -584,7 +584,7 @@ for lob in LOB_CONFIG:
         ri_share = to_eur(gross * cession_rate * rng.uniform(0.8, 1.2))
         net = to_eur(gross - ri_share)
 
-        1_raw_premiums.append({
+        premiums.append({
             "transaction_id": f"PR-{reporting_period}-{lob['code']}-{j+1:05d}",
             "policy_id": f"POL{rng.randint(1, 20001):06d}",
             "lob_code": lob["code"],
@@ -599,7 +599,7 @@ for lob in LOB_CONFIG:
             "currency": "EUR",
         })
 
-write_quarterly_table(pd.DataFrame(1_raw_premiums), "1_raw_premiums",
+write_quarterly_table(pd.DataFrame(premiums), "1_raw_premiums",
             "Premium transactions by LoB — one quarter per run")
 
 # COMMAND ----------
@@ -611,7 +611,7 @@ write_quarterly_table(pd.DataFrame(1_raw_premiums), "1_raw_premiums",
 
 # COMMAND ----------
 
-1_raw_claims = []
+claims = []
 for lob in LOB_CONFIG:
     n_claims = int(15000 * lob["gwp_share"]) + rng.randint(-50, 50)
     for j in range(n_claims):
@@ -628,7 +628,7 @@ for lob in LOB_CONFIG:
             rpt_date
         )[0]
 
-        1_raw_claims.append({
+        claims.append({
             "claim_id": f"CLM-{reporting_period}-{lob['code']}-{j+1:06d}",
             "policy_id": f"POL{rng.randint(1, 20001):06d}",
             "lob_code": lob["code"],
@@ -648,7 +648,7 @@ for lob in LOB_CONFIG:
             "currency": "EUR",
         })
 
-write_quarterly_table(pd.DataFrame(1_raw_claims), "1_raw_claims",
+write_quarterly_table(pd.DataFrame(claims), "1_raw_claims",
             "Claims transactions — loss events with paid/incurred/reserved")
 
 # COMMAND ----------
@@ -658,7 +658,7 @@ write_quarterly_table(pd.DataFrame(1_raw_claims), "1_raw_claims",
 
 # COMMAND ----------
 
-1_raw_expenses = []
+expenses = []
 for lob in LOB_CONFIG:
     lob_gwp_q = TOTAL_GWP_M * 1e6 / 4 * lob["gwp_share"] * seasonal * growth
     acquisition = to_eur(lob_gwp_q * rng.uniform(0.12, 0.18))
@@ -668,7 +668,7 @@ for lob in LOB_CONFIG:
     investment_mgmt = to_eur(lob_gwp_q * rng.uniform(0.005, 0.015))
     other = to_eur(lob_gwp_q * rng.uniform(0.005, 0.01))
 
-    1_raw_expenses.append({
+    expenses.append({
         "lob_code": lob["code"],
         "lob_name": lob["name"],
         "reporting_period": reporting_period,
@@ -682,7 +682,7 @@ for lob in LOB_CONFIG:
         "currency": "EUR",
     })
 
-write_quarterly_table(pd.DataFrame(1_raw_expenses), "1_raw_expenses",
+write_quarterly_table(pd.DataFrame(expenses), "1_raw_expenses",
             "Expense allocation by LoB — quarterly breakdown")
 
 # COMMAND ----------
@@ -893,7 +893,7 @@ else:
 # COMMAND ----------
 
 # Risk factors — SCR sub-module charges. These vary per quarter (market conditions).
-1_raw_risk_factors = []
+risk_factors = []
 
 # Market risk sub-modules
 mkt_charges = {
@@ -908,7 +908,7 @@ mkt_charges = {
     "concentration": to_eur(rng.uniform(20, 40) * 1e6 * growth),
 }
 for name, charge in mkt_charges.items():
-    1_raw_risk_factors.append({
+    risk_factors.append({
         "risk_module": "market",
         "risk_sub_module": name,
         "charge_eur": charge,
@@ -917,14 +917,14 @@ for name, charge in mkt_charges.items():
     })
 
 # Default risk
-1_raw_risk_factors.append({
+risk_factors.append({
     "risk_module": "default",
     "risk_sub_module": "type1_financial",
     "charge_eur": to_eur(rng.uniform(60, 100) * 1e6 * growth),
     "reporting_period": reporting_period,
     "description": "Counterparty default: financial institutions",
 })
-1_raw_risk_factors.append({
+risk_factors.append({
     "risk_module": "default",
     "risk_sub_module": "type2_receivables",
     "charge_eur": to_eur(rng.uniform(15, 30) * 1e6 * growth),
@@ -939,7 +939,7 @@ nl_charges = {
     "catastrophe": to_eur(rng.uniform(100, 160) * 1e6 * growth),
 }
 for name, charge in nl_charges.items():
-    1_raw_risk_factors.append({
+    risk_factors.append({
         "risk_module": "non_life",
         "risk_sub_module": name,
         "charge_eur": charge,
@@ -948,7 +948,7 @@ for name, charge in nl_charges.items():
     })
 
 # Health underwriting
-1_raw_risk_factors.append({
+risk_factors.append({
     "risk_module": "health",
     "risk_sub_module": "health_similar_nl",
     "charge_eur": to_eur(rng.uniform(40, 70) * 1e6 * growth),
@@ -957,7 +957,7 @@ for name, charge in nl_charges.items():
 })
 
 # Life (minimal for P&C insurer)
-1_raw_risk_factors.append({
+risk_factors.append({
     "risk_module": "life",
     "risk_sub_module": "life_expense",
     "charge_eur": to_eur(rng.uniform(5, 15) * 1e6 * growth),
@@ -965,7 +965,7 @@ for name, charge in nl_charges.items():
     "description": "Life underwriting: expense risk (minor for P&C)",
 })
 
-write_quarterly_table(pd.DataFrame(1_raw_risk_factors), "1_raw_risk_factors",
+write_quarterly_table(pd.DataFrame(risk_factors), "1_raw_risk_factors",
             "SCR sub-module charges by risk module — recalculated each quarter")
 
 # COMMAND ----------
