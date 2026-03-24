@@ -25,7 +25,7 @@
 # MAGIC databricks auth login --profile DEFAULT --host https://YOUR-WORKSPACE.cloud.databricks.com
 # MAGIC
 # MAGIC # 3. Run the deploy script (creates everything: schema, tables, pipelines, app)
-# MAGIC bash deploy_demo.sh
+# MAGIC bash deploy_demo.sh --catalog YOUR_CATALOG_NAME
 # MAGIC
 # MAGIC # This takes ~15 minutes and will:
 # MAGIC #   - Create the solvency2demo_agentic schema

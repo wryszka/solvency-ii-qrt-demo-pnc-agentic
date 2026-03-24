@@ -38,29 +38,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Auto-detect catalog if not specified
+# Catalog is required
 if [[ -z "$CATALOG" ]]; then
-    # Prefer a catalog matching the username/workspace, otherwise pick the first managed one
-    USERNAME_SHORT=$(databricks current-user me --profile "$PROFILE" -o json 2>/dev/null \
-        | python3 -c "import sys,json; u=json.load(sys.stdin)['userName'].split('@')[0].replace('.','_'); print(u)" 2>/dev/null || echo "")
-    CATALOG=$(databricks catalogs list --profile "$PROFILE" -o json 2>/dev/null \
-        | python3 -c "
-import sys,json
-cats=[c['name'] for c in json.load(sys.stdin) if c.get('catalog_type')=='MANAGED_CATALOG']
-user='$USERNAME_SHORT'
-# Prefer catalog containing username
-match=[c for c in cats if user and user in c]
-if match:
-    print(match[0])
-elif cats:
-    # If multiple, skip obvious non-personal ones
-    filtered=[c for c in cats if not any(x in c for x in ['jack','demo','test','sample'])]
-    print(filtered[0] if filtered else cats[-1])
-else:
-    print('main')
-" 2>/dev/null || echo "main")
-    echo "Auto-detected catalog: $CATALOG"
-    echo "   (override with: --catalog YOUR_CATALOG)"
+    echo "ERROR: --catalog is required."
+    echo ""
+    echo "Usage: bash deploy_demo.sh --catalog YOUR_CATALOG"
+    echo ""
+    echo "Example: bash deploy_demo.sh --catalog lr_serverless_aws_us_catalog"
+    exit 1
 fi
 
 # Auto-detect workspace username for folder path
