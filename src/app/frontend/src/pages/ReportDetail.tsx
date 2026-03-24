@@ -3,14 +3,17 @@ import { useParams, Link } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, Download, CheckCircle2, XCircle, Send,
   ChevronLeft, ChevronRight, FileCheck, Clock, GitCompare, FlaskConical,
+  Sparkles, Bot, Copy, Check,
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import {
   fetchContent, fetchQuality, fetchComparison, fetchLineage, fetchApproval,
   submitForReview, reviewApproval, generateCertificate, downloadFile,
   fetchReconciliation, fetchModelVersions, fetchTemplate,
+  generateAiReview,
   formatEur, formatPct,
   type ContentResponse, type QualityCheck, type LineageStep, type ApprovalRecord, type Row,
+  type AiReviewResponse,
 } from '../lib/api';
 
 const QRT_TITLES: Record<string, { name: string; title: string }> = {
@@ -675,6 +678,9 @@ function ApprovalTab({ qrtId }: { qrtId: string }) {
         </div>
       </div>
 
+      {/* AI Actuarial Review */}
+      <AiReviewSection qrtId={qrtId} />
+
       {/* Certificate generation (only for approved) */}
       {status === 'approved' && <CertificateSection qrtId={qrtId} />}
 
@@ -733,6 +739,232 @@ function ApprovalTab({ qrtId }: { qrtId: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════ AI Review Section ═══════ */
+function AiReviewSection({ qrtId }: { qrtId: string }) {
+  const [review, setReview] = useState<AiReviewResponse | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!generating) return;
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(interval);
+  }, [generating]);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setError(null);
+    setElapsed(0);
+    try {
+      const result = await generateAiReview(qrtId);
+      setReview(result);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function handleCopy() {
+    if (review?.review_text) {
+      navigator.clipboard.writeText(review.review_text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  // Simple markdown-to-HTML renderer for the review text
+  function renderMarkdown(text: string) {
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let inTable = false;
+    let tableRows: string[][] = [];
+    let tableHeader: string[] = [];
+
+    function flushTable() {
+      if (tableHeader.length > 0) {
+        elements.push(
+          <div key={`table-${elements.length}`} className="my-3 overflow-x-auto">
+            <table className="min-w-full text-sm border border-gray-200 rounded">
+              <thead>
+                <tr className="bg-gray-50">
+                  {tableHeader.map((h, i) => (
+                    <th key={i} className="px-3 py-1.5 text-left font-semibold text-gray-700 border-b">{h.trim()}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((row, ri) => (
+                  <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-3 py-1.5 border-b border-gray-100 text-gray-800">{cell.trim()}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      tableHeader = [];
+      tableRows = [];
+      inTable = false;
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Table detection
+      if (line.includes('|') && line.trim().startsWith('|')) {
+        const cells = line.split('|').filter((c) => c.trim() !== '');
+        if (!inTable) {
+          inTable = true;
+          tableHeader = cells;
+        } else if (cells.every((c) => /^[\s-:]+$/.test(c))) {
+          // separator row, skip
+        } else {
+          tableRows.push(cells);
+        }
+        continue;
+      } else if (inTable) {
+        flushTable();
+      }
+
+      if (line.startsWith('## ')) {
+        elements.push(<h3 key={i} className="text-base font-bold text-gray-900 mt-5 mb-2 flex items-center gap-2">{line.slice(3)}</h3>);
+      } else if (line.startsWith('### ')) {
+        elements.push(<h4 key={i} className="text-sm font-bold text-gray-800 mt-3 mb-1">{line.slice(4)}</h4>);
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        const content = line.slice(2);
+        // Bold detection
+        const parts = content.split(/(\*\*[^*]+\*\*)/g);
+        elements.push(
+          <li key={i} className="ml-4 text-sm text-gray-700 mb-1 list-disc">
+            {parts.map((part, pi) =>
+              part.startsWith('**') && part.endsWith('**')
+                ? <strong key={pi} className="text-gray-900">{part.slice(2, -2)}</strong>
+                : part
+            )}
+          </li>
+        );
+      } else if (line.trim() === '') {
+        elements.push(<div key={i} className="h-2" />);
+      } else {
+        // Regular paragraph with bold
+        const parts = line.split(/(\*\*[^*]+\*\*)/g);
+        elements.push(
+          <p key={i} className="text-sm text-gray-700 mb-1">
+            {parts.map((part, pi) =>
+              part.startsWith('**') && part.endsWith('**')
+                ? <strong key={pi} className="text-gray-900">{part.slice(2, -2)}</strong>
+                : part
+            )}
+          </p>
+        );
+      }
+    }
+    if (inTable) flushTable();
+    return elements;
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 bg-gradient-to-r from-violet-50 to-blue-50 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-violet-100 rounded-lg">
+              <Bot className="w-5 h-5 text-violet-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">AI Actuarial Review</h3>
+              <p className="text-xs text-gray-500">Powered by Databricks Foundation Model API</p>
+            </div>
+          </div>
+          {review && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 bg-white/60 px-2 py-1 rounded">
+                {review.model_used} | {review.input_tokens + review.output_tokens} tokens
+              </span>
+              <button
+                onClick={handleCopy}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="p-6">
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-4">{error}</div>
+        )}
+
+        {!review && !generating && (
+          <div className="text-center py-8">
+            <Sparkles className="w-10 h-10 text-violet-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-600 mb-4 max-w-md mx-auto">
+              Generate an AI-powered actuarial assessment of this QRT. The agent analyses current and prior period data,
+              data quality results, and cross-QRT reconciliation to produce a structured review.
+            </p>
+            <button
+              onClick={handleGenerate}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium transition-colors"
+            >
+              <Sparkles className="w-4 h-4" />
+              Generate AI Review
+            </button>
+          </div>
+        )}
+
+        {generating && (
+          <div className="text-center py-10">
+            <div className="relative inline-flex">
+              <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+            </div>
+            <p className="text-sm text-gray-600 mt-3">Analysing QRT data and generating actuarial review...</p>
+            <p className="text-xs text-gray-400 mt-1">{elapsed}s elapsed</p>
+            <div className="mt-4 max-w-xs mx-auto">
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-violet-400 to-blue-500 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.min(95, elapsed * 3)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {review && (
+          <div className="prose-sm max-w-none">
+            {renderMarkdown(review.review_text)}
+
+            {/* Regenerate button */}
+            <div className="mt-6 pt-4 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                Generated {new Date(review.created_at).toLocaleString()} | Period: {review.reporting_period}
+              </span>
+              <button
+                onClick={handleGenerate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-600 border border-violet-200 rounded-md hover:bg-violet-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Regenerate
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

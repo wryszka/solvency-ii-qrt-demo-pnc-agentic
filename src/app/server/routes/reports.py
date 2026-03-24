@@ -1,12 +1,18 @@
 import csv
 import io
+import json
 import logging
+import os
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from server.config import fqn
+from server.config import fqn, get_current_user
 from server.sql import execute_query
+from server.ai import generate_review
+from server.prompts import SYSTEM_PROMPT, QRT_PROMPTS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -844,3 +850,171 @@ async def get_periods(qrt_id: str):
         return {"data": [r["reporting_period"] for r in rows]}
     except Exception as exc:
         raise HTTPException(500, str(exc)) from exc
+
+
+# ── AI Actuarial Review ─────────────────────────────────────────────────────
+
+ENTITY_NAME = os.getenv("ENTITY_NAME", "Bricksurance SE")
+ENTITY_LEI = os.getenv("ENTITY_LEI", "5493001KJTIIGC8Y1R12")
+
+
+async def _ensure_ai_reviews_table():
+    """Create qrt_ai_reviews table if it doesn't exist."""
+    await execute_query(f"""
+        CREATE TABLE IF NOT EXISTS {fqn('qrt_ai_reviews')} (
+            review_id STRING,
+            qrt_id STRING,
+            reporting_period STRING,
+            review_text STRING,
+            model_used STRING,
+            input_tokens LONG,
+            output_tokens LONG,
+            created_at TIMESTAMP,
+            created_by STRING
+        )
+    """)
+
+
+async def _gather_context(qrt_id: str) -> dict:
+    """Gather summary, prior period, DQ, and reconciliation data for a QRT."""
+    defn = QRT_DEFS[qrt_id]
+    summary_table = defn["summary_table"]
+
+    # Get all period summaries (for current + prior comparison)
+    summaries = await execute_query(
+        f"SELECT * FROM {fqn(summary_table)} ORDER BY reporting_period DESC"
+    )
+
+    current = summaries[0] if summaries else {}
+    prior = summaries[1] if len(summaries) > 1 else {}
+    reporting_period = current.get("reporting_period", "Unknown")
+
+    # DQ expectations
+    try:
+        dq_rows = await execute_query(f"""
+            SELECT * FROM {fqn('dq_expectation_results')}
+            WHERE pipeline_name LIKE '%{defn['name']}%'
+            AND reporting_period = '{reporting_period}'
+        """)
+    except Exception:
+        dq_rows = []
+
+    # Reconciliation
+    try:
+        recon_rows = await execute_query(f"""
+            SELECT * FROM {fqn('cross_qrt_reconciliation')}
+            WHERE reporting_period = '{reporting_period}'
+        """)
+    except Exception:
+        recon_rows = []
+
+    # Model versions (S.25.01 only)
+    model_data = ""
+    if qrt_id == "s2501":
+        try:
+            model_rows = await execute_query(f"""
+                SELECT * FROM {fqn('model_registry_log')}
+                WHERE reporting_period = '{reporting_period}'
+            """)
+            model_data = json.dumps(model_rows, indent=2, default=str)
+        except Exception:
+            model_data = "Model version data not available."
+
+    def format_rows(rows):
+        if not rows:
+            return "No data available."
+        return json.dumps(rows, indent=2, default=str)
+
+    return {
+        "entity_name": ENTITY_NAME,
+        "entity_lei": ENTITY_LEI,
+        "reporting_period": reporting_period,
+        "summary_data": format_rows([current] if current else []),
+        "prior_summary_data": format_rows([prior] if prior else []),
+        "dq_data": format_rows(dq_rows),
+        "reconciliation_data": format_rows(recon_rows),
+        "model_data": model_data,
+    }
+
+
+@router.post("/{qrt_id}/ai-review")
+async def generate_ai_review(qrt_id: str):
+    """Generate an AI actuarial review for a QRT."""
+    if qrt_id not in QRT_DEFS:
+        raise HTTPException(404, "Unknown QRT")
+
+    if qrt_id not in QRT_PROMPTS:
+        raise HTTPException(400, f"No AI review template for {qrt_id}")
+
+    try:
+        # Gather data context
+        context = await _gather_context(qrt_id)
+
+        # Build the user prompt from template
+        prompt_template = QRT_PROMPTS[qrt_id]
+        user_prompt = prompt_template.format(**context)
+
+        # Call the Foundation Model
+        result = await generate_review(SYSTEM_PROMPT, user_prompt)
+
+        # Store in audit table
+        review_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        user = get_current_user()
+
+        try:
+            await _ensure_ai_reviews_table()
+            await execute_query(f"""
+                INSERT INTO {fqn('qrt_ai_reviews')} VALUES (
+                    '{review_id}',
+                    '{qrt_id}',
+                    '{context["reporting_period"]}',
+                    '{result.text.replace("'", "''")}',
+                    '{result.model_used}',
+                    {result.input_tokens},
+                    {result.output_tokens},
+                    '{now}',
+                    '{user}'
+                )
+            """)
+        except Exception:
+            logger.warning("Failed to store AI review in audit table — returning result anyway")
+
+        return {
+            "review_id": review_id,
+            "qrt_id": qrt_id,
+            "reporting_period": context["reporting_period"],
+            "review_text": result.text,
+            "model_used": result.model_used,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "created_at": now,
+        }
+
+    except RuntimeError as exc:
+        # Model endpoint not available
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to generate AI review for %s", qrt_id)
+        raise HTTPException(500, f"AI review generation failed: {str(exc)}") from exc
+
+
+@router.get("/{qrt_id}/ai-reviews")
+async def list_ai_reviews(qrt_id: str):
+    """List past AI reviews for a QRT."""
+    if qrt_id not in QRT_DEFS:
+        raise HTTPException(404, "Unknown QRT")
+
+    try:
+        await _ensure_ai_reviews_table()
+        rows = await execute_query(f"""
+            SELECT review_id, qrt_id, reporting_period, model_used,
+                   input_tokens, output_tokens, created_at, created_by
+            FROM {fqn('qrt_ai_reviews')}
+            WHERE qrt_id = '{qrt_id}'
+            ORDER BY created_at DESC
+            LIMIT 10
+        """)
+        return {"data": rows}
+    except Exception:
+        return {"data": []}

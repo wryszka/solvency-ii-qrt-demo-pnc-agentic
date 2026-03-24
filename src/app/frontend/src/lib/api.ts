@@ -172,6 +172,27 @@ export function fetchEmbeds(): Promise<EmbedUrls> {
   return fetchJson('/api/embeds');
 }
 
+// ─── AI Review API ─────────────────────────────────────────────
+
+export interface AiReviewResponse {
+  review_id: string;
+  qrt_id: string;
+  reporting_period: string;
+  review_text: string;
+  model_used: string;
+  input_tokens: number;
+  output_tokens: number;
+  created_at: string;
+}
+
+export function generateAiReview(qrtId: string): Promise<AiReviewResponse> {
+  return postJson(`/api/reports/${qrtId}/ai-review`);
+}
+
+export function fetchAiReviews(qrtId: string): Promise<{ data: Row[] }> {
+  return fetchJson(`/api/reports/${qrtId}/ai-reviews`);
+}
+
 // ─── Monitoring API ────────────────────────────────────────────
 
 export function fetchSlaStatus(period?: string): Promise<{ data: Row[] }> {
