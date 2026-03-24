@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from server.config import fqn, get_current_user
+from databricks.sdk.service.sql import StatementParameterListItem
 from server.sql import execute_query
 from server.ai import generate_review
 from server.prompts import (
@@ -1007,21 +1008,24 @@ async def generate_ai_review(qrt_id: str):
 
         try:
             await _ensure_ai_reviews_table()
-            escaped_text = review_text.replace("'", "''")
-            escaped_guardrails = json.dumps(guardrails.to_dict()).replace("'", "''")
-            await execute_query(f"""
-                INSERT INTO {fqn('qrt_ai_reviews')} VALUES (
-                    '{review_id}',
-                    '{qrt_id}',
-                    '{context["reporting_period"]}',
-                    '{escaped_text}',
-                    '{result.model_used}',
-                    {result.input_tokens},
-                    {result.output_tokens},
-                    '{now}',
-                    '{user}'
-                )
-            """)
+            await execute_query(
+                f"""INSERT INTO {fqn('qrt_ai_reviews')}
+                    (review_id, qrt_id, reporting_period, review_text,
+                     model_used, input_tokens, output_tokens, created_at, created_by)
+                    VALUES (:review_id, :qrt_id, :period, :review_text,
+                            :model_used, :input_tokens, :output_tokens, :created_at, :created_by)""",
+                parameters=[
+                    StatementParameterListItem(name="review_id", value=review_id),
+                    StatementParameterListItem(name="qrt_id", value=qrt_id),
+                    StatementParameterListItem(name="period", value=context["reporting_period"]),
+                    StatementParameterListItem(name="review_text", value=review_text),
+                    StatementParameterListItem(name="model_used", value=result.model_used),
+                    StatementParameterListItem(name="input_tokens", value=str(result.input_tokens)),
+                    StatementParameterListItem(name="output_tokens", value=str(result.output_tokens)),
+                    StatementParameterListItem(name="created_at", value=now),
+                    StatementParameterListItem(name="created_by", value=user),
+                ],
+            )
         except Exception:
             logger.warning("Failed to store AI review in audit table — returning result anyway")
 

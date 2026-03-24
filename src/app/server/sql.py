@@ -2,23 +2,30 @@ import asyncio
 import logging
 from typing import Any
 
-from databricks.sdk.service.sql import StatementState
+from databricks.sdk.service.sql import StatementState, StatementParameterListItem
 
 from server.config import get_workspace_client, get_warehouse_id
 
 logger = logging.getLogger(__name__)
 
 
-def _execute_sync(sql: str) -> list[dict[str, Any]]:
+def _execute_sync(
+    sql: str,
+    parameters: list[StatementParameterListItem] | None = None,
+) -> list[dict[str, Any]]:
     client = get_workspace_client()
     warehouse_id = get_warehouse_id()
     logger.debug("SQL: %s", sql[:200])
 
-    response = client.statement_execution.execute_statement(
-        statement=sql,
-        warehouse_id=warehouse_id,
-        wait_timeout="50s",
-    )
+    kwargs: dict[str, Any] = {
+        "statement": sql,
+        "warehouse_id": warehouse_id,
+        "wait_timeout": "50s",
+    }
+    if parameters:
+        kwargs["parameters"] = parameters
+
+    response = client.statement_execution.execute_statement(**kwargs)
 
     if response.status and response.status.state == StatementState.FAILED:
         error_msg = response.status.error.message if response.status.error else "Unknown"
@@ -47,5 +54,8 @@ def _execute_sync(sql: str) -> list[dict[str, Any]]:
     return rows
 
 
-async def execute_query(sql: str) -> list[dict[str, Any]]:
-    return await asyncio.to_thread(_execute_sync, sql)
+async def execute_query(
+    sql: str,
+    parameters: list[StatementParameterListItem] | None = None,
+) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_execute_sync, sql, parameters)

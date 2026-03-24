@@ -7,6 +7,7 @@ import {
   fetchRegulatorExamples, askRegulatorQuestion,
   type RegulatorExampleCategory, type RegulatorAnswer, type GuardrailVerdict,
 } from '../lib/api';
+import { renderMarkdownSafe } from '../lib/markdown';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -30,7 +31,7 @@ export default function RegulatorQA() {
   useEffect(() => {
     fetchRegulatorExamples()
       .then((r) => setExamples(r.examples))
-      .catch(() => {});
+      .catch((e) => console.error('Failed to fetch examples:', e));
   }, []);
 
   useEffect(() => {
@@ -206,16 +207,8 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           {isUser ? (
             message.content
           ) : (
-            <div className="prose-sm max-w-none [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:text-sm [&_h3]:font-bold [&_h3]:mt-2 [&_h3]:mb-1 [&_li]:ml-4 [&_li]:list-disc [&_strong]:font-semibold"
-              dangerouslySetInnerHTML={{
-                __html: message.content
-                  .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                  .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                  .replace(/^\- (.+)$/gm, '<li>$1</li>')
-                  .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-                  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                  .replace(/\n\n/g, '<br/><br/>')
-              }}
+            <div className="prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(message.content) }}
             />
           )}
         </div>

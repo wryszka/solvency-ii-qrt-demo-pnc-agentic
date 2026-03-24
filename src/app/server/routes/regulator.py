@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,8 +16,8 @@ from server.guardrails import validate_input, validate_output, truncate_output
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/regulator", tags=["regulator"])
 
-ENTITY_NAME = "Bricksurance SE"
-ENTITY_LEI = "5493001KJTIIGC8Y1R12"
+ENTITY_NAME = os.getenv("ENTITY_NAME", "Bricksurance SE")
+ENTITY_LEI = os.getenv("ENTITY_LEI", "5493001KJTIIGC8Y1R12")
 
 EXAMPLE_QUESTIONS = [
     {

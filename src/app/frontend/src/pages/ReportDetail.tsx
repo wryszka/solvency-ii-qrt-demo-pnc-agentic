@@ -16,6 +16,7 @@ import {
   type ContentResponse, type QualityCheck, type LineageStep, type ApprovalRecord, type Row,
   type AiReviewResponse, type GuardrailVerdict, type GovernanceControl, type StochasticReviewResponse,
 } from '../lib/api';
+import { renderMarkdownSafe } from '../lib/markdown';
 
 const QRT_TITLES: Record<string, { name: string; title: string }> = {
   s0602: { name: 'S.06.02', title: 'List of Assets' },
@@ -1516,16 +1517,8 @@ function StochasticEngineTab() {
                 </div>
               )}
 
-              <div className="prose-sm max-w-none text-sm text-gray-700 [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-gray-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_li]:ml-4 [&_li]:list-disc [&_strong]:text-gray-900"
-                dangerouslySetInnerHTML={{
-                  __html: result.review_text
-                    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                    .replace(/^### (.+)$/gm, '<h3 class="text-sm font-bold text-gray-800 mt-3 mb-1">$1</h3>')
-                    .replace(/^\- (.+)$/gm, '<li>$1</li>')
-                    .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\n\n/g, '<br/><br/>')
-                }}
+              <div className="prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(result.review_text) }}
               />
 
               <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
