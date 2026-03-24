@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, XCircle, ShieldCheck, TrendingUp } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, ShieldCheck, TrendingUp, Sparkles, Bot, Shield, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
-import { fetchDqSummary, fetchDqTrends, type Row } from '../lib/api';
+import { fetchDqSummary, fetchDqTrends, investigateDqFailures, type Row, type DqTriageResponse } from '../lib/api';
 
 export default function DataQuality() {
   const [expectations, setExpectations] = useState<Row[]>([]);
@@ -83,6 +83,9 @@ export default function DataQuality() {
         </div>
       </div>
 
+      {/* AI DQ Triage */}
+      <DqTriageSection />
+
       {/* DQ Trend */}
       {trends.length > 1 && (
         <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -115,6 +118,135 @@ export default function DataQuality() {
       {Array.from(byPipeline.entries()).map(([pipeline, checks]) => (
         <PipelineSection key={pipeline} pipeline={pipeline} checks={checks} />
       ))}
+    </div>
+  );
+}
+
+function DqTriageSection() {
+  const [result, setResult] = useState<DqTriageResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [showGuardrails, setShowGuardrails] = useState(false);
+
+  useEffect(() => {
+    if (!loading) return;
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  async function handleInvestigate() {
+    setLoading(true);
+    setError(null);
+    setElapsed(0);
+    try {
+      const r = await investigateDqFailures();
+      setResult(r);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="px-5 py-4 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-100 rounded-lg">
+              <Bot className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-gray-900">AI Data Quality Triage</h3>
+              <p className="text-xs text-gray-500">Investigates DQ failures, hypothesises root causes, recommends fixes</p>
+            </div>
+          </div>
+          {result && (
+            <span className="text-xs text-gray-400 bg-white/60 px-2 py-1 rounded">
+              {result.model_used} | {(result.input_tokens || 0) + (result.output_tokens || 0)} tokens
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="p-5">
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-4">{error}</div>
+        )}
+
+        {!result && !loading && (
+          <div className="text-center py-6">
+            <p className="text-sm text-gray-600 mb-3">
+              Let the AI agent investigate any data quality failures, identify root causes, and recommend fixes.
+            </p>
+            <button
+              onClick={handleInvestigate}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-medium"
+            >
+              <Sparkles className="w-4 h-4" />
+              Investigate DQ Issues
+            </button>
+          </div>
+        )}
+
+        {loading && (
+          <div className="text-center py-8">
+            <Loader2 className="w-7 h-7 animate-spin text-amber-600 mx-auto" />
+            <p className="text-sm text-gray-600 mt-3">Investigating data quality failures...</p>
+            <p className="text-xs text-gray-400 mt-1">{elapsed}s elapsed</p>
+          </div>
+        )}
+
+        {result && (
+          <div>
+            {/* Guardrail banner */}
+            {result.guardrails && (
+              <div className={`mb-3 rounded-lg border px-3 py-2 ${result.guardrails.passed ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                <button onClick={() => setShowGuardrails(!showGuardrails)} className="flex items-center gap-2 w-full text-left">
+                  <Shield className={`w-3.5 h-3.5 ${result.guardrails.passed ? 'text-green-600' : 'text-amber-600'}`} />
+                  <span className="text-xs font-medium text-gray-700">
+                    Guardrails: {result.guardrails.checks_passed}/{result.guardrails.checks_run} passed
+                  </span>
+                  {showGuardrails ? <ChevronUp className="w-3 h-3 ml-auto text-gray-400" /> : <ChevronDown className="w-3 h-3 ml-auto text-gray-400" />}
+                </button>
+                {showGuardrails && (
+                  <div className="mt-2 space-y-1">
+                    {result.guardrails.warnings.map((w, i) => (
+                      <div key={i} className="flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="w-3 h-3" />{w}</div>
+                    ))}
+                    {result.guardrails.warnings.length === 0 && result.guardrails.failures.length === 0 && (
+                      <div className="flex items-center gap-1 text-xs text-green-700"><CheckCircle2 className="w-3 h-3" />All checks passed</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Render the markdown review */}
+            <div className="prose-sm max-w-none text-sm text-gray-700 [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-gray-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_li]:ml-4 [&_li]:list-disc [&_strong]:text-gray-900"
+              dangerouslySetInnerHTML={{
+                __html: result.review_text
+                  .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                  .replace(/^### (.+)$/gm, '<h3 class="text-sm font-bold text-gray-800 mt-3 mb-1">$1</h3>')
+                  .replace(/^\- (.+)$/gm, '<li>$1</li>')
+                  .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+                  .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                  .replace(/\n\n/g, '<br/><br/>')
+              }}
+            />
+
+            <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                {result.failing_count} failing check(s) investigated | Period: {result.reporting_period}
+              </span>
+              <button onClick={handleInvestigate} className="text-xs text-amber-600 hover:text-amber-700 font-medium">
+                Re-investigate
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

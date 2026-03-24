@@ -296,35 +296,109 @@ display(spark.sql(f"""
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5. Comparing All 4 QRTs
+# MAGIC ## 5. Agent #3 — DQ Triage Agent
 # MAGIC
-# MAGIC The same agent architecture works across all 4 QRTs with QRT-specific prompts:
+# MAGIC When data quality checks fail, the DQ Triage Agent investigates root causes.
+# MAGIC It reads the failing expectations, SLA feed status, and hypothesises what went wrong.
 # MAGIC
-# MAGIC | QRT | Focus Areas |
-# MAGIC |-----|-------------|
-# MAGIC | **S.06.02** (Assets) | Allocation shifts, credit quality, duration risk, concentration |
-# MAGIC | **S.05.01** (P&L) | Combined ratio by LoB, loss ratio trends, large losses |
-# MAGIC | **S.25.01** (SCR) | Solvency ratio, risk modules, diversification, model version |
-# MAGIC | **S.26.06** (NL Risk) | Premium vs reserve risk, cat risk, stochastic model output |
+# MAGIC **Trigger:** Data Quality page → "Investigate DQ Issues" button
 # MAGIC
-# MAGIC Each prompt template is calibrated with actuarial domain knowledge —
-# MAGIC the expected ranges, typical ratios, and red-flag thresholds for a European P&C insurer.
+# MAGIC **Input:** DQ expectation results + SLA feed status
+# MAGIC
+# MAGIC **Output:** Root cause hypothesis + remediation steps with owners
+
+# COMMAND ----------
+
+# DBTITLE 1,DQ Triage — What the agent sees
+display(spark.sql(f"""
+    SELECT pipeline_name, table_name, expectation_name,
+           total_records, passing_records, failing_records
+    FROM {catalog}.{schema}.dq_expectation_results
+    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.dq_expectation_results)
+    AND failing_records > 0
+"""))
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6. Live Demo — The App
+# MAGIC ## 6. Agent #4 — Cross-QRT Consistency Agent
 # MAGIC
-# MAGIC Open the deployed app and navigate to any QRT → **Approve / Export** tab:
+# MAGIC After all 4 pipelines complete, this agent reads all QRT summaries together
+# MAGIC and validates cross-template consistency with actuarial reasoning.
 # MAGIC
-# MAGIC 1. Click **Generate AI Review**
-# MAGIC 2. Watch the progress bar (8-15 seconds)
-# MAGIC 3. Read the structured actuarial assessment
-# MAGIC 4. Expand **Guardrails** banner — see checks passed/failed
-# MAGIC 5. Expand **Agent Governance & Security Controls** — see all 12 controls
-# MAGIC 6. Copy the review, attach to approval, then Approve or Reject
+# MAGIC **Trigger:** Control Tower → "Run Consistency Review" button
 # MAGIC
-# MAGIC The AI accelerates the review — the human makes the decision.
+# MAGIC **Checks performed:**
+# MAGIC - S.06.02 total assets vs S.25.01 market risk charge (implied duration)
+# MAGIC - S.05.01 GWP vs S.26.06 premium risk volumes
+# MAGIC - S.26.06 NL UW SCR vs S.25.01 R0050 (diversification benefit)
+# MAGIC - S.05.01 net incurred vs S.26.06 reserve risk
+# MAGIC - Overall: does solvency ratio make sense given P&L + assets?
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Agent #2 — Regulator Q&A Agent
+# MAGIC
+# MAGIC A chat-style interface where the user types natural language questions
+# MAGIC and gets answers grounded in the actual QRT data.
+# MAGIC
+# MAGIC **Trigger:** "Regulator Q&A" tab in the app nav
+# MAGIC
+# MAGIC **Example use cases:**
+# MAGIC - "Why did the solvency ratio change between Q3 and Q4?"
+# MAGIC - "Prepare a response to BaFin about the property combined ratio"
+# MAGIC - "Summarise the risk position for the Risk Committee"
+# MAGIC
+# MAGIC **How it differs from Genie:**
+# MAGIC - Genie runs SQL → shows tables/charts (data retrieval)
+# MAGIC - Regulator Q&A reads data → writes narrative analysis (advisory output)
+# MAGIC - Uses full cross-QRT context, not single-table queries
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 8. All 4 Agents — Architecture Overview
+# MAGIC
+# MAGIC | Agent | Where in App | Input | Output | Guardrails |
+# MAGIC |-------|-------------|-------|--------|-----------|
+# MAGIC | **Actuarial Review** | Report → Approve tab | QRT summary + DQ + recon | Structured review | All 12 controls |
+# MAGIC | **DQ Triage** | Data Quality page | Failing checks + SLA | Root cause + fix | All 12 controls |
+# MAGIC | **Cross-QRT Consistency** | Control Tower | All 4 summaries + recon | Consistency verdict | All 12 controls |
+# MAGIC | **Regulator Q&A** | Nav → Regulator Q&A | All summaries + question | Answer/letter | All 12 controls |
+# MAGIC
+# MAGIC All agents share the same:
+# MAGIC - AI wrapper (Foundation Model API with Sonnet/Llama fallback)
+# MAGIC - Guardrails module (input + output validation)
+# MAGIC - Audit trail (qrt_ai_reviews table)
+# MAGIC - Service principal isolation
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 9. Live Demo — The App
+# MAGIC
+# MAGIC Open the deployed app and demo all 4 agents:
+# MAGIC
+# MAGIC ### Agent 1 — Actuarial Review
+# MAGIC 1. Navigate to any QRT (e.g. S.25.01) → **Approve / Export** tab
+# MAGIC 2. Click **Generate AI Review** → watch progress bar (8-15s)
+# MAGIC 3. Read the structured assessment → expand Guardrails banner → expand Governance panel
+# MAGIC 4. Approve or Reject (human decision)
+# MAGIC
+# MAGIC ### Agent 2 — Regulator Q&A
+# MAGIC 1. Click **Regulator Q&A** in the top nav
+# MAGIC 2. Type: *"Why did the solvency ratio change between Q3 and Q4?"*
+# MAGIC 3. Or click an example question → read the grounded answer
+# MAGIC
+# MAGIC ### Agent 3 — DQ Triage
+# MAGIC 1. Click **Data Quality** in the top nav
+# MAGIC 2. Click **Investigate DQ Issues** → agent analyses failures
+# MAGIC
+# MAGIC ### Agent 4 — Cross-QRT Consistency
+# MAGIC 1. Click **Monitor** (Control Tower) in the top nav
+# MAGIC 2. Scroll to Cross-QRT section → click **Run Consistency Review**
+# MAGIC 3. Agent validates all 4 QRTs together
 # MAGIC
 # MAGIC ---
 # MAGIC
@@ -335,14 +409,15 @@ display(spark.sql(f"""
 # MAGIC %md
 # MAGIC ## Summary
 # MAGIC
-# MAGIC | Capability | Before | After (with Agent) |
-# MAGIC |-----------|--------|-------------------|
-# MAGIC | QRT review time | 2-3 hours per template | ~15 seconds |
+# MAGIC | Capability | Before | After (with 4 Agents) |
+# MAGIC |-----------|--------|----------------------|
+# MAGIC | QRT review time | 2-3 hours per template | ~15 seconds (Actuarial Review Agent) |
+# MAGIC | DQ failure investigation | Manual log analysis, 1-2 hours | ~10 seconds (DQ Triage Agent) |
+# MAGIC | Cross-QRT consistency | Manual spreadsheet cross-check | ~12 seconds (Cross-QRT Agent) |
+# MAGIC | Regulator query response | 4-8 hours per letter | ~15 seconds draft (Regulator Q&A Agent) |
 # MAGIC | Review consistency | Varies by reviewer | Structured, repeatable |
-# MAGIC | Period comparison | Manual spreadsheet | Automated with % changes |
-# MAGIC | Risk flag detection | Depends on experience | Systematic pattern matching |
 # MAGIC | Audit trail | Email threads | Queryable UC table |
-# MAGIC | Human decision | Always | Always (agent is advisory only) |
+# MAGIC | Human decision | Always | Always (all agents are advisory only) |
 # MAGIC
 # MAGIC ### Databricks Components Used
 # MAGIC

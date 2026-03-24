@@ -319,21 +319,57 @@ display(spark.sql(f"""
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## But Wait — There Are 3 More Agents!
+# MAGIC
+# MAGIC The review agent was just the start. We also built:
+# MAGIC
+# MAGIC ### Agent 2: Regulator Q&A
+# MAGIC You type a question like *"Why did the solvency ratio drop?"* and the agent:
+# MAGIC 1. Reads all 4 QRT summaries
+# MAGIC 2. Writes an answer grounded in the actual data
+# MAGIC 3. Can draft formal regulator response letters
+# MAGIC
+# MAGIC Think of it as "Genie, but with actuarial context and narrative output."
+# MAGIC
+# MAGIC ### Agent 3: DQ Triage
+# MAGIC When a data quality check fails, the agent investigates:
+# MAGIC - *"4 assets dropped for null IDs — likely the custodian migration from last week."*
+# MAGIC - *"Expenses arrived late because the SAP extraction job failed on the 14th."*
+# MAGIC
+# MAGIC Instead of a data engineer digging through logs, the agent hypothesises the root cause in 10 seconds.
+# MAGIC
+# MAGIC ### Agent 4: Cross-QRT Consistency
+# MAGIC Reads all 4 QRTs together and checks they make sense as a package:
+# MAGIC - Do the assets match the risk charges?
+# MAGIC - Do the premiums match the volume measures?
+# MAGIC - Is the diversification benefit in the expected range?
+# MAGIC
+# MAGIC This is the check a senior actuary does mentally — the agent does it explicitly and documents it.
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Try It Live
 # MAGIC
-# MAGIC 1. Open the app: `https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com`
-# MAGIC 2. Click any report (e.g., S.25.01 SCR)
-# MAGIC 3. Go to the **Approve / Export** tab
-# MAGIC 4. Click **Generate AI Review**
-# MAGIC 5. Read the review, check the guardrails banner
-# MAGIC 6. Approve or reject — your call, not the AI's
+# MAGIC App URL: `https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com`
+# MAGIC
+# MAGIC | What to demo | Where in the app |
+# MAGIC |-------------|-----------------|
+# MAGIC | **Actuarial Review** | Any report → Approve / Export → Generate AI Review |
+# MAGIC | **Regulator Q&A** | Top nav → Regulator Q&A → type a question |
+# MAGIC | **DQ Triage** | Top nav → Data Quality → Investigate DQ Issues |
+# MAGIC | **Cross-QRT Consistency** | Top nav → Monitor → Run Consistency Review |
+# MAGIC | **Security controls** | Any AI review → expand Guardrails + Governance panel |
 # MAGIC
 # MAGIC ---
 # MAGIC
 # MAGIC ## TL;DR
 # MAGIC
-# MAGIC - **What:** AI reviews insurance regulatory reports before human sign-off
-# MAGIC - **How fast:** 15 seconds instead of 3 hours
-# MAGIC - **How safe:** 12 controls, 6 layers, human always decides
+# MAGIC - **What:** 4 AI agents for insurance regulatory reporting
+# MAGIC - **Agent 1:** Reviews QRTs (15s vs 3 hours)
+# MAGIC - **Agent 2:** Answers regulator questions (15s vs 4-8 hours)
+# MAGIC - **Agent 3:** Investigates DQ failures (10s vs 1-2 hours)
+# MAGIC - **Agent 4:** Validates cross-QRT consistency (12s vs 1 hour)
+# MAGIC - **How safe:** 12 controls, 7 layers, human always decides
 # MAGIC - **What Databricks:** FMAPI, Unity Catalog, DLT, Apps, Serving ACLs, Monitoring
-# MAGIC - **What it can't do:** Approve, submit, impersonate, or access raw data
+# MAGIC - **What they can't do:** Approve, submit, impersonate, modify data, or access raw records

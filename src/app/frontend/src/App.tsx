@@ -1,11 +1,12 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Building2, FileText, BarChart3, MessageCircle, Activity, ShieldCheck } from 'lucide-react';
+import { Building2, FileText, BarChart3, MessageCircle, Activity, ShieldCheck, Bot } from 'lucide-react';
 import Monitor from './pages/Monitor';
 import ReportsList from './pages/ReportsList';
 import ReportDetail from './pages/ReportDetail';
 import DataQuality from './pages/DataQuality';
 import Dashboard from './pages/Dashboard';
 import Genie from './pages/Genie';
+import RegulatorQA from './pages/RegulatorQA';
 
 function NavLink({ to, icon: Icon, label }: { to: string; icon: React.ComponentType<{ className?: string }>; label: string }) {
   const { pathname } = useLocation();
@@ -40,6 +41,7 @@ function Nav() {
             <NavLink to="/" icon={FileText} label="Reports" />
             <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
             <NavLink to="/dashboard" icon={BarChart3} label="Dashboard" />
+            <NavLink to="/regulator-qa" icon={Bot} label="Regulator Q&A" />
             <NavLink to="/genie" icon={MessageCircle} label="Ask Genie" />
           </nav>
         </div>
@@ -64,6 +66,7 @@ export default function App() {
             <Route path="/report/:qrtId" element={<ReportDetail />} />
             <Route path="/data-quality" element={<DataQuality />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/regulator-qa" element={<RegulatorQA />} />
             <Route path="/genie" element={<Genie />} />
           </Routes>
         </main>

@@ -243,3 +243,59 @@ export function fetchModelVersions(period?: string): Promise<{ data: Row[] }> {
   const qs = period ? `?period=${period}` : '';
   return fetchJson(`/api/monitoring/model-versions${qs}`);
 }
+
+// ─── Agent #3: DQ Triage API ──────────────────────────────────────────
+
+export interface DqTriageResponse {
+  reporting_period?: string;
+  failing_count?: number;
+  review_text: string;
+  model_used: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  guardrails?: GuardrailVerdict;
+}
+
+export function investigateDqFailures(): Promise<DqTriageResponse> {
+  return postJson('/api/monitoring/dq-investigate');
+}
+
+// ─── Agent #4: Cross-QRT Consistency API ──────────────────────────────
+
+export interface CrossQrtReviewResponse {
+  reporting_period: string;
+  review_text: string;
+  model_used: string;
+  input_tokens: number;
+  output_tokens: number;
+  guardrails?: GuardrailVerdict;
+}
+
+export function generateCrossQrtReview(): Promise<CrossQrtReviewResponse> {
+  return postJson('/api/reports/cross-qrt-review');
+}
+
+// ─── Agent #2: Regulator Q&A API ──────────────────────────────────────
+
+export interface RegulatorExampleCategory {
+  category: string;
+  questions: string[];
+}
+
+export interface RegulatorAnswer {
+  question: string;
+  answer: string;
+  reporting_period: string;
+  model_used: string;
+  input_tokens: number;
+  output_tokens: number;
+  guardrails?: GuardrailVerdict;
+}
+
+export function fetchRegulatorExamples(): Promise<{ examples: RegulatorExampleCategory[] }> {
+  return fetchJson('/api/regulator/examples');
+}
+
+export function askRegulatorQuestion(question: string): Promise<RegulatorAnswer> {
+  return postJson('/api/regulator/ask', { question });
+}

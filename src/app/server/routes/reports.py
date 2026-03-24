@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from server.config import fqn, get_current_user
 from server.sql import execute_query
 from server.ai import generate_review
-from server.prompts import SYSTEM_PROMPT, QRT_PROMPTS
+from server.prompts import SYSTEM_PROMPT, QRT_PROMPTS, CROSS_QRT_SYSTEM, CROSS_QRT_PROMPT
 from server.guardrails import (
     validate_input, validate_output, truncate_output,
     get_governance_controls, GuardrailVerdict,
@@ -1068,3 +1068,98 @@ async def list_ai_reviews(qrt_id: str):
 async def get_agent_governance():
     """Return the list of governance controls for demo display."""
     return {"controls": get_governance_controls()}
+
+
+# ── Agent #4: Cross-QRT Consistency ──────────────────────────────────────────
+
+@router.post("/cross-qrt-review")
+async def cross_qrt_consistency_review():
+    """AI agent reviews all 4 QRTs together for cross-template consistency."""
+    user = get_current_user()
+
+    try:
+        # Gather latest summaries from all 4 QRTs
+        async def get_summary(table: str):
+            try:
+                rows = await execute_query(
+                    f"SELECT * FROM {fqn(table)} ORDER BY reporting_period DESC LIMIT 1"
+                )
+                return rows[0] if rows else {}
+            except Exception:
+                return {}
+
+        s0602 = await get_summary("s0602_summary")
+        s0501 = await get_summary("s0501_summary")
+        s2501 = await get_summary("s2501_summary")
+        s2606 = await get_summary("s2606_summary")
+
+        reporting_period = (
+            s2501.get("reporting_period")
+            or s0501.get("reporting_period")
+            or "Unknown"
+        )
+
+        # Get reconciliation results
+        try:
+            recon_rows = await execute_query(f"""
+                SELECT * FROM {fqn('cross_qrt_reconciliation')}
+                WHERE reporting_period = '{reporting_period}'
+            """)
+        except Exception:
+            recon_rows = []
+
+        def fmt(data):
+            return json.dumps(data, indent=2, default=str) if data else "Not available."
+
+        user_prompt = CROSS_QRT_PROMPT.format(
+            entity_name=ENTITY_NAME,
+            entity_lei=ENTITY_LEI,
+            reporting_period=reporting_period,
+            s0602_summary=fmt(s0602),
+            s0501_summary=fmt(s0501),
+            s2501_summary=fmt(s2501),
+            s2606_summary=fmt(s2606),
+            reconciliation_data=fmt(recon_rows),
+        )
+
+        # Guardrails
+        input_verdict = validate_input(user_prompt, user)
+        if not input_verdict.passed:
+            status_code = 429 if input_verdict.rate_limited else 400
+            raise HTTPException(status_code, {
+                "error": "Input guardrail failed",
+                "guardrails": input_verdict.to_dict(),
+            })
+
+        result = await generate_review(CROSS_QRT_SYSTEM, user_prompt)
+        output_verdict = validate_output(result.text)
+        review_text = truncate_output(result.text)
+
+        guardrails = GuardrailVerdict(
+            passed=input_verdict.passed and output_verdict.passed,
+            checks_run=input_verdict.checks_run + output_verdict.checks_run,
+            checks_passed=input_verdict.checks_passed + output_verdict.checks_passed,
+            checks_failed=input_verdict.checks_failed + output_verdict.checks_failed,
+            warnings=input_verdict.warnings + output_verdict.warnings,
+            failures=input_verdict.failures + output_verdict.failures,
+            pii_flags=output_verdict.pii_flags,
+            output_truncated=output_verdict.output_truncated,
+            rate_limited=input_verdict.rate_limited,
+        )
+
+        return {
+            "reporting_period": reporting_period,
+            "review_text": review_text,
+            "model_used": result.model_used,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "guardrails": guardrails.to_dict(),
+        }
+
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Cross-QRT review failed")
+        raise HTTPException(500, f"Cross-QRT review failed: {str(exc)}") from exc
