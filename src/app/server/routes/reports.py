@@ -1186,11 +1186,17 @@ async def stochastic_engine_review():
         )
         reporting_period = s2606_rows[0].get("reporting_period", "Unknown") if s2606_rows else "Unknown"
 
-        # Exposure inputs
+        # Exposure inputs — aggregated summary, not raw rows
         try:
             exposures = await execute_query(f"""
-                SELECT * FROM {fqn('exposures')}
+                SELECT lob_code, peril,
+                       COUNT(*) AS exposure_count,
+                       SUM(CAST(sum_insured AS DOUBLE)) AS total_sum_insured,
+                       AVG(CAST(deductible AS DOUBLE)) AS avg_deductible,
+                       AVG(CAST(limit AS DOUBLE)) AS avg_limit
+                FROM {fqn('exposures')}
                 WHERE reporting_period = '{reporting_period}'
+                GROUP BY lob_code, peril
                 ORDER BY lob_code, peril
             """)
         except Exception:
@@ -1205,11 +1211,17 @@ async def stochastic_engine_review():
         except Exception:
             run_log = []
 
-        # Stochastic results
+        # Stochastic results — aggregated by LoB
         try:
             results = await execute_query(f"""
-                SELECT * FROM {fqn('igloo_results')}
+                SELECT lob_code,
+                       COUNT(*) AS result_rows,
+                       SUM(CAST(var_gross_eur AS DOUBLE)) AS total_var_gross,
+                       SUM(CAST(var_net_eur AS DOUBLE)) AS total_var_net,
+                       SUM(CAST(tvar_net_eur AS DOUBLE)) AS total_tvar_net
+                FROM {fqn('igloo_results')}
                 WHERE reporting_period = '{reporting_period}'
+                GROUP BY lob_code
                 ORDER BY lob_code
             """)
         except Exception:
