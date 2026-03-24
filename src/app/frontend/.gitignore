@@ -8,7 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# dist — tracked in git and needed by DAB for Databricks Apps deployment
 dist-ssr
 *.local
 

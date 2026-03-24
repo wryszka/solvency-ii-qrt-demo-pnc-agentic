@@ -2,8 +2,10 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-dist/
+# Python dist (but not frontend/dist which is needed for the app)
+/dist/
 build/
+!src/app/frontend/dist/
 .venv/
 venv/
 
