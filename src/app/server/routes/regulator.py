@@ -63,10 +63,10 @@ async def _gather_full_context() -> dict:
         except Exception:
             return []
 
-    s0602 = await get_latest("s0602_summary")
-    s0501 = await get_latest("s0501_summary")
-    s2501 = await get_latest("s2501_summary")
-    s2606 = await get_latest("s2606_summary")
+    s0602 = await get_latest("3_qrt_s0602_summary")
+    s0501 = await get_latest("3_qrt_s0501_summary")
+    s2501 = await get_latest("3_qrt_s2501_summary")
+    s2606 = await get_latest("3_qrt_s2606_summary")
 
     # Get reporting period from whichever table has data
     reporting_period = "Unknown"
@@ -78,7 +78,7 @@ async def _gather_full_context() -> dict:
     # Reconciliation
     try:
         recon = await execute_query(f"""
-            SELECT * FROM {fqn('cross_qrt_reconciliation')}
+            SELECT * FROM {fqn('5_mon_cross_qrt_reconciliation')}
             WHERE reporting_period = '{reporting_period}'
         """)
     except Exception:
@@ -91,7 +91,7 @@ async def _gather_full_context() -> dict:
                    SUM(CAST(failing_records AS INT)) AS total_failing,
                    ROUND(SUM(CAST(passing_records AS INT)) * 100.0 /
                          NULLIF(SUM(CAST(total_records AS INT)), 0), 1) AS pass_rate_pct
-            FROM {fqn('dq_expectation_results')}
+            FROM {fqn('5_mon_dq_expectation_results')}
             WHERE reporting_period = '{reporting_period}'
             GROUP BY pipeline_name
         """)

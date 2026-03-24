@@ -8,12 +8,12 @@
 -- MAGIC - SII valuation (mark-to-market / mark-to-model)
 -- MAGIC - Credit quality step from external rating
 -- MAGIC
--- MAGIC **Source:** `assets` (raw investment register)
--- MAGIC **Target:** `assets_enriched`
+-- MAGIC **Source:** `1_raw_assets` (raw investment register)
+-- MAGIC **Target:** `2_stg_assets_enriched`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW assets_enriched(
+CREATE OR REFRESH MATERIALIZED VIEW `2_stg_assets_enriched`(
   -- Data quality: every asset must have an ID and positive SII value
   CONSTRAINT asset_id_not_null       EXPECT (asset_id IS NOT NULL)           ON VIOLATION DROP ROW,
   CONSTRAINT sii_value_positive      EXPECT (sii_value > 0)                 ON VIOLATION FAIL UPDATE,
@@ -80,5 +80,5 @@ SELECT
     custodian_name,
     is_listed
 
-FROM LIVE.assets
-WHERE reporting_period = (SELECT MAX(reporting_period) FROM LIVE.assets)
+FROM LIVE.`1_raw_assets`
+WHERE reporting_period = (SELECT MAX(reporting_period) FROM LIVE.`1_raw_assets`)

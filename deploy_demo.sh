@@ -20,7 +20,7 @@ set -euo pipefail
 # Defaults
 PROFILE="${DATABRICKS_PROFILE:-DEFAULT}"
 CATALOG=""
-SCHEMA="solvency2demo"
+SCHEMA="solvency2demo_agentic"
 WORKSPACE_DIR=""
 YEAR="2025"
 ENTITY="Bricksurance SE"
@@ -242,17 +242,17 @@ echo "   Creating Genie space..."
 GENIE_PAYLOAD=$(python3 -c "
 import json
 tables = sorted([
-    'assets', 'premiums', 'claims', 'expenses', 'risk_factors',
-    'own_funds', 'balance_sheet', 'scr_results', 'counterparties',
-    'reinsurance', 'assets_enriched',
-    's0602_list_of_assets', 's0602_summary',
-    'premiums_by_lob', 'claims_by_lob', 'expenses_by_lob',
-    's0501_premiums_claims_expenses', 's0501_summary',
-    's2501_scr_breakdown', 's2501_summary',
-    's2606_nl_uw_risk', 's2606_summary',
-    'cat_risk_by_lob', 'premium_reserve_risk',
-    'igloo_results', 'igloo_run_log',
-    'claims_triangles', 'volume_measures',
+    '1_raw_assets', '1_raw_premiums', '1_raw_claims', '1_raw_expenses', '1_raw_risk_factors',
+    '1_raw_own_funds', '1_raw_balance_sheet', '2_stg_scr_results', '1_raw_counterparties',
+    '1_raw_reinsurance', '2_stg_assets_enriched',
+    '3_qrt_s0602_list_of_assets', '3_qrt_s0602_summary',
+    '2_stg_premiums_by_lob', '2_stg_claims_by_lob', '2_stg_expenses_by_lob',
+    '3_qrt_s0501_premiums_claims_expenses', '3_qrt_s0501_summary',
+    '3_qrt_s2501_scr_breakdown', '3_qrt_s2501_summary',
+    '3_qrt_s2606_nl_uw_risk', '3_qrt_s2606_summary',
+    '2_stg_cat_risk_by_lob', '2_stg_premium_reserve_risk',
+    '4_eng_stochastic_results', '4_eng_stochastic_run_log',
+    '1_raw_claims_triangles', '1_raw_volume_measures',
 ])
 print(json.dumps({
     'title': 'Solvency II QRT Assistant',
@@ -282,14 +282,14 @@ fi
 # Step 5: Deploy the Databricks App
 echo ">> Deploying Databricks App..."
 APP_NAME="solvency2-qrt-ai"
-APP_WS_PATH="/Workspace/Users/${USERNAME}/solvency-ii-qrt-demo/04_App"
+APP_WS_PATH="/Workspace/Users/${USERNAME}/solvency-ii-qrt-demo-agentic/04_App"
 
 # Create the app (ignore error if it already exists)
 databricks apps create "$APP_NAME" --profile "$PROFILE" 2>/dev/null || true
 
 # Upload app source files (skip .venv and node_modules)
 echo "   Uploading app files..."
-databricks workspace mkdirs "$APP_WS_PATH/frontend/dist/assets" --profile "$PROFILE"
+databricks workspace mkdirs "$APP_WS_PATH/frontend/dist/1_raw_assets" --profile "$PROFILE"
 databricks workspace mkdirs "$APP_WS_PATH/server/routes" --profile "$PROFILE"
 
 for f in app.py app.yaml requirements.txt; do

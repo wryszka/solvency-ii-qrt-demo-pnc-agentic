@@ -278,7 +278,7 @@ def get_governance_controls() -> list[dict]:
         {
             "layer": "Audit & Observability",
             "control": "Full Audit Trail in Unity Catalog",
-            "description": "Every AI review is stored in qrt_ai_reviews with: review_id, model_used, token counts, timestamp, user identity. Queryable via SQL.",
+            "description": "Every AI review is stored in 6_ai_reviews with: review_id, model_used, token counts, timestamp, user identity. Queryable via SQL.",
             "databricks_feature": "Unity Catalog Tables + System Tables",
             "icon": "database",
         },

@@ -11,21 +11,21 @@
 # MAGIC
 # MAGIC | Table | Description | Feeds |
 # MAGIC |---|---|---|
-# MAGIC | `counterparties` | Master counterparty register (~500) | All QRTs |
-# MAGIC | `assets` | Investment portfolio (~5,000) | S.06.02 |
-# MAGIC | `policies` | Policy register (~20,000) | S.05.01 |
-# MAGIC | `premiums` | Premium transactions (~20K/quarter) | S.05.01 |
-# MAGIC | `claims` | Claims transactions (~15K/quarter) | S.05.01, S.19.01 |
-# MAGIC | `expenses` | Expense allocations by LoB (~7/quarter) | S.05.01 |
-# MAGIC | `reinsurance` | Reinsurance programme (~50) | All QRTs |
-# MAGIC | `claims_triangles` | Development triangles (10yr x 8 LoB) | S.19.01, S.26.06 |
-# MAGIC | `risk_factors` | SCR sub-module charges (~30) | S.25.01 |
-# MAGIC | `scr_parameters` | EIOPA correlation matrix + factors | S.25.01 |
-# MAGIC | `volume_measures` | Premium & reserve volumes by LoB | S.26.06 |
-# MAGIC | `exposures` | Exposure sets by peril & LoB (~500) | Igloo input |
-# MAGIC | `igloo_results` | Simulated stochastic output — VaR/TVaR | S.25.01 (IM) |
-# MAGIC | `own_funds` | Own funds components (~10) | Solvency ratio |
-# MAGIC | `balance_sheet` | SII balance sheet items (~20) | Overview |
+# MAGIC | `1_raw_counterparties` | Master counterparty register (~500) | All QRTs |
+# MAGIC | `1_raw_assets` | Investment portfolio (~5,000) | S.06.02 |
+# MAGIC | `1_raw_policies` | Policy register (~20,000) | S.05.01 |
+# MAGIC | `1_raw_premiums` | Premium transactions (~20K/quarter) | S.05.01 |
+# MAGIC | `1_raw_claims` | Claims transactions (~15K/quarter) | S.05.01, S.19.01 |
+# MAGIC | `1_raw_expenses` | Expense allocations by LoB (~7/quarter) | S.05.01 |
+# MAGIC | `1_raw_reinsurance` | Reinsurance programme (~50) | All QRTs |
+# MAGIC | `1_raw_claims_triangles` | Development triangles (10yr x 8 LoB) | S.19.01, S.26.06 |
+# MAGIC | `1_raw_risk_factors` | SCR sub-module charges (~30) | S.25.01 |
+# MAGIC | `7_ref_scr_parameters` | EIOPA correlation matrix + factors | S.25.01 |
+# MAGIC | `1_raw_volume_measures` | Premium & reserve volumes by LoB | S.26.06 |
+# MAGIC | `1_raw_exposures` | Exposure sets by peril & LoB (~500) | Igloo input |
+# MAGIC | `4_eng_stochastic_results` | Simulated stochastic output — VaR/TVaR | S.25.01 (IM) |
+# MAGIC | `1_raw_own_funds` | Own funds components (~10) | Solvency ratio |
+# MAGIC | `1_raw_balance_sheet` | SII balance sheet items (~20) | Overview |
 # MAGIC
 # MAGIC **Parameters:**
 # MAGIC - `catalog_name` — Unity Catalog
@@ -41,7 +41,7 @@
 # COMMAND ----------
 
 dbutils.widgets.text("catalog_name", "main")
-dbutils.widgets.text("schema_name", "solvency2demo_ai")
+dbutils.widgets.text("schema_name", "solvency2demo_agentic")
 dbutils.widgets.text("reporting_period", "2025-Q4")
 dbutils.widgets.text("mode", "append")  # append | full_reset
 dbutils.widgets.text("entity_name", "Bricksurance SE")
@@ -95,7 +95,7 @@ spark.sql(f"USE SCHEMA {schema}")
 
 # Create volume for regulatory exports (used later by the app)
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.regulatory_exports")
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.igloo_exchange")
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.`4_eng_stochastic_exchange`")
 
 print(f"Schema {catalog}.{schema} ready")
 
@@ -223,9 +223,13 @@ def gen_market_values(n, total_target, sigma=0.8):
 def table_exists(table_name):
     return spark.catalog.tableExists(f"{catalog}.{schema}.{table_name}")
 
+def fqn(table_name):
+    """Fully qualified table name with backtick quoting for numbered prefixes."""
+    return f"`{catalog}`.`{schema}`.`{table_name}`"
+
 def write_table(df_pandas, table_name, description, mode="overwrite"):
     """Write a pandas DataFrame to Delta. mode='overwrite' or 'append'."""
-    full_name = f"{catalog}.{schema}.{table_name}"
+    full_name = fqn(table_name)
     sdf = spark.createDataFrame(df_pandas)
     sdf.write.format("delta").mode(mode).option("overwriteSchema", "true").saveAsTable(full_name)
     cnt = spark.table(full_name).count()
@@ -235,7 +239,7 @@ def write_table(df_pandas, table_name, description, mode="overwrite"):
 
 def write_quarterly_table(df_pandas, table_name, description):
     """Write per-quarter data: deletes existing quarter rows then appends."""
-    full_name = f"{catalog}.{schema}.{table_name}"
+    full_name = fqn(table_name)
     if table_exists(table_name):
         spark.sql(f"DELETE FROM {full_name} WHERE reporting_period = '{reporting_period}'")
         write_table(df_pandas, table_name, description, mode="append")
@@ -259,7 +263,7 @@ print(f"Seasonal factor: {seasonal}, Growth factor: {growth:.4f}")
 # COMMAND ----------
 
 # Only generate if table doesn't exist or full_reset
-_cp_exists = spark.catalog.tableExists(f"{catalog}.{schema}.counterparties")
+_cp_exists = spark.catalog.tableExists(f"{catalog}.{schema}.`1_raw_counterparties`")
 
 if not _cp_exists or mode == "full_reset":
     countries_pool = SOVEREIGN_COUNTRIES + ["LU", "IE", "FI", "SE", "DK", "PT", "CH"]
@@ -270,7 +274,7 @@ if not _cp_exists or mode == "full_reset":
     )
     rating_weights /= rating_weights.sum()
 
-    counterparties = []
+    1_raw_counterparties = []
     for i in range(500):
         first = _corp_first[rng.randint(len(_corp_first))]
         mid = _corp_mid[rng.randint(len(_corp_mid))]
@@ -278,7 +282,7 @@ if not _cp_exists or mode == "full_reset":
         country = countries_pool[rng.randint(len(countries_pool))]
         rating = rng.choice(SP_RATINGS, p=rating_weights)
 
-        counterparties.append({
+        1_raw_counterparties.append({
             "counterparty_id": f"CP{i+1:05d}",
             "counterparty_name": f"{first} {mid} {suffix}",
             "lei": make_lei(f"cp_{i}"),
@@ -290,7 +294,7 @@ if not _cp_exists or mode == "full_reset":
             "is_regulated": bool(rng.random() < 0.7),
         })
 
-    write_table(pd.DataFrame(counterparties), "counterparties",
+    write_table(pd.DataFrame(1_raw_counterparties), "1_raw_counterparties",
                 "Master counterparty register — issuers, reinsurers, banks")
 else:
     print("  counterparties: already exists, skipping")
@@ -315,8 +319,8 @@ n_eq = int(N_ASSETS * 0.10)
 n_ciu = int(N_ASSETS * 0.05)
 n_oth = N_ASSETS - n_gov - n_corp - n_eq - n_ciu
 
-# Load counterparties for issuer linkage
-df_cp = spark.table(f"{catalog}.{schema}.counterparties").toPandas()
+# Load 1_raw_counterparties for issuer linkage
+df_cp = spark.table(f"{catalog}.{schema}.`1_raw_counterparties`").toPandas()
 issuers = df_cp[df_cp["counterparty_type"] == "issuer"]
 
 assets_rows = []
@@ -518,7 +522,7 @@ for i in range(n_oth):
     idx += 1
 
 df_assets = pd.DataFrame(assets_rows)
-write_quarterly_table(df_assets, "assets", "Investment portfolio — quarter-end snapshot")
+write_quarterly_table(df_assets, "1_raw_assets", "Investment portfolio — quarter-end snapshot")
 
 # COMMAND ----------
 
@@ -529,18 +533,18 @@ write_quarterly_table(df_assets, "assets", "Investment portfolio — quarter-end
 
 # COMMAND ----------
 
-_pol_exists = spark.catalog.tableExists(f"{catalog}.{schema}.policies")
+_pol_exists = spark.catalog.tableExists(f"{catalog}.{schema}.`1_raw_policies`")
 
 if not _pol_exists or mode == "full_reset":
     N_POLICIES = 20000
-    policies = []
+    1_raw_policies = []
     for i in range(N_POLICIES):
         lob = LOB_CONFIG[rng.randint(len(LOB_CONFIG))]
         inception = random_date(date(2023,1,1), date(2025,9,30))[0]
         expiry = inception + timedelta(days=365)
         gwp = to_eur(rng.lognormal(mean=9.5, sigma=1.2) * GWP_SHARES[lob["code"]])
 
-        policies.append({
+        1_raw_policies.append({
             "policy_id": f"POL{i+1:06d}",
             "lob_code": lob["code"],
             "lob_name": lob["name"],
@@ -552,7 +556,7 @@ if not _pol_exists or mode == "full_reset":
             "status": rng.choice(["active","active","active","lapsed","cancelled"], p=[0.70,0.15,0.05,0.05,0.05]),
         })
 
-    write_table(pd.DataFrame(policies), "policies", "Policy register — all active and historical policies")
+    write_table(pd.DataFrame(1_raw_policies), "1_raw_policies", "Policy register — all active and historical 1_raw_policies")
 else:
     print("  policies: already exists, skipping")
 
@@ -561,12 +565,12 @@ else:
 # MAGIC %md
 # MAGIC ## 4. Premiums (per quarter, ~20K transactions)
 # MAGIC
-# MAGIC Appended each quarter. Represents earned/written premiums by LoB.
+# MAGIC Appended each quarter. Represents earned/written 1_raw_premiums by LoB.
 
 # COMMAND ----------
 
 quarterly_gwp = TOTAL_GWP_M * 1e6 / 4 * seasonal * growth
-premiums = []
+1_raw_premiums = []
 
 for lob in LOB_CONFIG:
     lob_gwp = quarterly_gwp * lob["gwp_share"]
@@ -580,7 +584,7 @@ for lob in LOB_CONFIG:
         ri_share = to_eur(gross * cession_rate * rng.uniform(0.8, 1.2))
         net = to_eur(gross - ri_share)
 
-        premiums.append({
+        1_raw_premiums.append({
             "transaction_id": f"PR-{reporting_period}-{lob['code']}-{j+1:05d}",
             "policy_id": f"POL{rng.randint(1, 20001):06d}",
             "lob_code": lob["code"],
@@ -595,7 +599,7 @@ for lob in LOB_CONFIG:
             "currency": "EUR",
         })
 
-write_quarterly_table(pd.DataFrame(premiums), "premiums",
+write_quarterly_table(pd.DataFrame(1_raw_premiums), "1_raw_premiums",
             "Premium transactions by LoB — one quarter per run")
 
 # COMMAND ----------
@@ -607,7 +611,7 @@ write_quarterly_table(pd.DataFrame(premiums), "premiums",
 
 # COMMAND ----------
 
-claims = []
+1_raw_claims = []
 for lob in LOB_CONFIG:
     n_claims = int(15000 * lob["gwp_share"]) + rng.randint(-50, 50)
     for j in range(n_claims):
@@ -624,7 +628,7 @@ for lob in LOB_CONFIG:
             rpt_date
         )[0]
 
-        claims.append({
+        1_raw_claims.append({
             "claim_id": f"CLM-{reporting_period}-{lob['code']}-{j+1:06d}",
             "policy_id": f"POL{rng.randint(1, 20001):06d}",
             "lob_code": lob["code"],
@@ -644,7 +648,7 @@ for lob in LOB_CONFIG:
             "currency": "EUR",
         })
 
-write_quarterly_table(pd.DataFrame(claims), "claims",
+write_quarterly_table(pd.DataFrame(1_raw_claims), "1_raw_claims",
             "Claims transactions — loss events with paid/incurred/reserved")
 
 # COMMAND ----------
@@ -654,7 +658,7 @@ write_quarterly_table(pd.DataFrame(claims), "claims",
 
 # COMMAND ----------
 
-expenses = []
+1_raw_expenses = []
 for lob in LOB_CONFIG:
     lob_gwp_q = TOTAL_GWP_M * 1e6 / 4 * lob["gwp_share"] * seasonal * growth
     acquisition = to_eur(lob_gwp_q * rng.uniform(0.12, 0.18))
@@ -664,7 +668,7 @@ for lob in LOB_CONFIG:
     investment_mgmt = to_eur(lob_gwp_q * rng.uniform(0.005, 0.015))
     other = to_eur(lob_gwp_q * rng.uniform(0.005, 0.01))
 
-    expenses.append({
+    1_raw_expenses.append({
         "lob_code": lob["code"],
         "lob_name": lob["name"],
         "reporting_period": reporting_period,
@@ -678,7 +682,7 @@ for lob in LOB_CONFIG:
         "currency": "EUR",
     })
 
-write_quarterly_table(pd.DataFrame(expenses), "expenses",
+write_quarterly_table(pd.DataFrame(1_raw_expenses), "1_raw_expenses",
             "Expense allocation by LoB — quarterly breakdown")
 
 # COMMAND ----------
@@ -690,7 +694,7 @@ write_quarterly_table(pd.DataFrame(expenses), "expenses",
 
 # COMMAND ----------
 
-_ri_exists = spark.catalog.tableExists(f"{catalog}.{schema}.reinsurance")
+_ri_exists = spark.catalog.tableExists(f"{catalog}.{schema}.`1_raw_reinsurance`")
 
 if not _ri_exists or mode == "full_reset":
     ri_rows = []
@@ -733,7 +737,7 @@ if not _ri_exists or mode == "full_reset":
         })
         treaty_idx += 1
 
-    write_table(pd.DataFrame(ri_rows), "reinsurance",
+    write_table(pd.DataFrame(ri_rows), "1_raw_reinsurance",
                 "Reinsurance programme — QS and XL treaties by LoB")
 else:
     print("  reinsurance: already exists, skipping")
@@ -815,7 +819,7 @@ for lob_code, cfg in TRIANGLE_LOB.items():
                 "reporting_period": reporting_period,
             })
 
-write_quarterly_table(pd.DataFrame(tri_rows), "claims_triangles",
+write_quarterly_table(pd.DataFrame(tri_rows), "1_raw_claims_triangles",
             "Claims development triangles — paid & incurred by AY, dev period, LoB")
 
 # COMMAND ----------
@@ -828,7 +832,7 @@ write_quarterly_table(pd.DataFrame(tri_rows), "claims_triangles",
 
 # COMMAND ----------
 
-_scr_exists = spark.catalog.tableExists(f"{catalog}.{schema}.scr_parameters")
+_scr_exists = spark.catalog.tableExists(f"{catalog}.{schema}.`7_ref_scr_parameters`")
 
 if not _scr_exists or mode == "full_reset":
     # EIOPA correlation matrix for BSCR aggregation
@@ -878,10 +882,10 @@ if not _scr_exists or mode == "full_reset":
         "module_i": "operational",
         "module_j": "operational",
         "value": 0.03,
-        "description": "Operational risk as % of earned premiums",
+        "description": "Operational risk as % of earned 1_raw_premiums",
     })
 
-    write_table(pd.DataFrame(scr_params), "scr_parameters",
+    write_table(pd.DataFrame(scr_params), "7_ref_scr_parameters",
                 "EIOPA Standard Formula parameters — correlation matrices and calibration factors")
 else:
     print("  scr_parameters: already exists, skipping")
@@ -889,7 +893,7 @@ else:
 # COMMAND ----------
 
 # Risk factors — SCR sub-module charges. These vary per quarter (market conditions).
-risk_factors = []
+1_raw_risk_factors = []
 
 # Market risk sub-modules
 mkt_charges = {
@@ -904,7 +908,7 @@ mkt_charges = {
     "concentration": to_eur(rng.uniform(20, 40) * 1e6 * growth),
 }
 for name, charge in mkt_charges.items():
-    risk_factors.append({
+    1_raw_risk_factors.append({
         "risk_module": "market",
         "risk_sub_module": name,
         "charge_eur": charge,
@@ -913,14 +917,14 @@ for name, charge in mkt_charges.items():
     })
 
 # Default risk
-risk_factors.append({
+1_raw_risk_factors.append({
     "risk_module": "default",
     "risk_sub_module": "type1_financial",
     "charge_eur": to_eur(rng.uniform(60, 100) * 1e6 * growth),
     "reporting_period": reporting_period,
     "description": "Counterparty default: financial institutions",
 })
-risk_factors.append({
+1_raw_risk_factors.append({
     "risk_module": "default",
     "risk_sub_module": "type2_receivables",
     "charge_eur": to_eur(rng.uniform(15, 30) * 1e6 * growth),
@@ -935,7 +939,7 @@ nl_charges = {
     "catastrophe": to_eur(rng.uniform(100, 160) * 1e6 * growth),
 }
 for name, charge in nl_charges.items():
-    risk_factors.append({
+    1_raw_risk_factors.append({
         "risk_module": "non_life",
         "risk_sub_module": name,
         "charge_eur": charge,
@@ -944,7 +948,7 @@ for name, charge in nl_charges.items():
     })
 
 # Health underwriting
-risk_factors.append({
+1_raw_risk_factors.append({
     "risk_module": "health",
     "risk_sub_module": "health_similar_nl",
     "charge_eur": to_eur(rng.uniform(40, 70) * 1e6 * growth),
@@ -953,7 +957,7 @@ risk_factors.append({
 })
 
 # Life (minimal for P&C insurer)
-risk_factors.append({
+1_raw_risk_factors.append({
     "risk_module": "life",
     "risk_sub_module": "life_expense",
     "charge_eur": to_eur(rng.uniform(5, 15) * 1e6 * growth),
@@ -961,7 +965,7 @@ risk_factors.append({
     "description": "Life underwriting: expense risk (minor for P&C)",
 })
 
-write_quarterly_table(pd.DataFrame(risk_factors), "risk_factors",
+write_quarterly_table(pd.DataFrame(1_raw_risk_factors), "1_raw_risk_factors",
             "SCR sub-module charges by risk module — recalculated each quarter")
 
 # COMMAND ----------
@@ -992,7 +996,7 @@ for lob_code, cfg in TRIANGLE_LOB.items():
         "reporting_period": reporting_period,
     })
 
-write_quarterly_table(pd.DataFrame(volume_rows), "volume_measures",
+write_quarterly_table(pd.DataFrame(volume_rows), "1_raw_volume_measures",
             "Premium & reserve volume measures by LoB — feeds S.26.06")
 
 # COMMAND ----------
@@ -1033,7 +1037,7 @@ for lob in LOB_CONFIG:
             "reporting_period": reporting_period,
         })
 
-write_quarterly_table(pd.DataFrame(exposure_rows), "exposures",
+write_quarterly_table(pd.DataFrame(exposure_rows), "1_raw_exposures",
             "Exposure sets by peril & LoB — input for stochastic engine (Igloo)")
 
 # COMMAND ----------
@@ -1090,7 +1094,7 @@ for lob in LOB_CONFIG:
                 "reporting_period": reporting_period,
             })
 
-write_quarterly_table(pd.DataFrame(igloo_rows), "igloo_results",
+write_quarterly_table(pd.DataFrame(igloo_rows), "4_eng_stochastic_results",
             "Simulated stochastic engine output — VaR/TVaR by peril, LoB, return period")
 
 # COMMAND ----------
@@ -1110,7 +1114,7 @@ own_funds_rows = [
     {"component": "ancillary_own_funds", "tier": 3, "amount_eur": to_eur(rng.uniform(30, 60) * 1e6 * growth), "reporting_period": reporting_period},
 ]
 
-write_quarterly_table(pd.DataFrame(own_funds_rows), "own_funds",
+write_quarterly_table(pd.DataFrame(own_funds_rows), "1_raw_own_funds",
             "Own funds components by tier — feeds solvency ratio")
 
 # Balance sheet items
@@ -1120,18 +1124,18 @@ other_liabilities = to_eur(total_assets_val * rng.uniform(0.05, 0.10))
 excess = to_eur(total_assets_val - tp_val - other_liabilities)
 
 bs_rows = [
-    {"item": "total_assets", "category": "assets", "amount_eur": total_assets_val, "reporting_period": reporting_period},
-    {"item": "investments", "category": "assets", "amount_eur": to_eur(total_assets_val * 0.92), "reporting_period": reporting_period},
-    {"item": "reinsurance_recoverables", "category": "assets", "amount_eur": to_eur(total_assets_val * 0.05), "reporting_period": reporting_period},
-    {"item": "cash_and_equivalents", "category": "assets", "amount_eur": to_eur(total_assets_val * 0.03), "reporting_period": reporting_period},
+    {"item": "total_assets", "category": "1_raw_assets", "amount_eur": total_assets_val, "reporting_period": reporting_period},
+    {"item": "investments", "category": "1_raw_assets", "amount_eur": to_eur(total_assets_val * 0.92), "reporting_period": reporting_period},
+    {"item": "reinsurance_recoverables", "category": "1_raw_assets", "amount_eur": to_eur(total_assets_val * 0.05), "reporting_period": reporting_period},
+    {"item": "cash_and_equivalents", "category": "1_raw_assets", "amount_eur": to_eur(total_assets_val * 0.03), "reporting_period": reporting_period},
     {"item": "technical_provisions_gross", "category": "liabilities", "amount_eur": tp_val, "reporting_period": reporting_period},
     {"item": "reinsurance_payables", "category": "liabilities", "amount_eur": to_eur(total_assets_val * 0.03), "reporting_period": reporting_period},
     {"item": "other_liabilities", "category": "liabilities", "amount_eur": other_liabilities, "reporting_period": reporting_period},
     {"item": "excess_of_assets_over_liabilities", "category": "equity", "amount_eur": excess, "reporting_period": reporting_period},
 ]
 
-write_quarterly_table(pd.DataFrame(bs_rows), "balance_sheet",
-            "Solvency II balance sheet — assets, liabilities, excess")
+write_quarterly_table(pd.DataFrame(bs_rows), "1_raw_balance_sheet",
+            "Solvency II balance sheet — 1_raw_assets, liabilities, excess")
 
 # COMMAND ----------
 
@@ -1149,12 +1153,12 @@ sla_year = rp_year if sla_month > 1 else rp_year + 1
 sla_deadline = datetime(sla_year, sla_month, sla_deadline_day, 18, 0, 0)
 
 FEED_CONFIG = [
-    {"feed": "assets", "source": "Investment Platform (Simcorp)", "typical_days_early": 5},
-    {"feed": "premiums", "source": "Policy Admin System (Guidewire)", "typical_days_early": 3},
-    {"feed": "claims", "source": "Claims Management System", "typical_days_early": 4},
-    {"feed": "expenses", "source": "Finance / ERP (SAP)", "typical_days_early": 1},
-    {"feed": "risk_factors", "source": "Risk Engine (Igloo/RAFM)", "typical_days_early": 2},
-    {"feed": "reinsurance", "source": "RI Admin (Solvara)", "typical_days_early": 10},
+    {"feed": "1_raw_assets", "source": "Investment Platform (Simcorp)", "typical_days_early": 5},
+    {"feed": "1_raw_premiums", "source": "Policy Admin System (Guidewire)", "typical_days_early": 3},
+    {"feed": "1_raw_claims", "source": "Claims Management System", "typical_days_early": 4},
+    {"feed": "1_raw_expenses", "source": "Finance / ERP (SAP)", "typical_days_early": 1},
+    {"feed": "1_raw_risk_factors", "source": "Risk Engine (Igloo/RAFM)", "typical_days_early": 2},
+    {"feed": "1_raw_reinsurance", "source": "RI Admin (Solvara)", "typical_days_early": 10},
 ]
 
 sla_rows = []
@@ -1162,8 +1166,8 @@ for fc in FEED_CONFIG:
     days_early = fc["typical_days_early"] + int(rng.uniform(-3, 3))
     arrival = sla_deadline - timedelta(days=days_early)
 
-    # Make expenses late in Q4 for demo narrative
-    if fc["feed"] == "expenses" and rp_quarter == 4:
+    # Make 1_raw_expenses late in Q4 for demo narrative
+    if fc["feed"] == "1_raw_expenses" and rp_quarter == 4:
         arrival = sla_deadline + timedelta(days=2, hours=int(rng.uniform(1, 8)))
 
     status = "on_time" if arrival <= sla_deadline else "late"
@@ -1177,7 +1181,7 @@ for fc in FEED_CONFIG:
         feed_count = int(rng.uniform(1000, 50000))
 
     dq_pass = round(rng.uniform(0.985, 1.0), 4)
-    if fc["feed"] == "expenses" and rp_quarter == 4:
+    if fc["feed"] == "1_raw_expenses" and rp_quarter == 4:
         dq_pass = round(rng.uniform(0.965, 0.985), 4)  # slightly worse for late data
 
     sla_rows.append({
@@ -1192,7 +1196,7 @@ for fc in FEED_CONFIG:
         "notes": f"Arrived {abs(days_early)} days {'early' if arrival <= sla_deadline else 'late'}",
     })
 
-write_quarterly_table(pd.DataFrame(sla_rows), "pipeline_sla_status",
+write_quarterly_table(pd.DataFrame(sla_rows), "5_mon_pipeline_sla_status",
             "Pipeline SLA tracking — feed arrival times vs deadlines for Control Tower")
 
 # COMMAND ----------
@@ -1206,35 +1210,35 @@ write_quarterly_table(pd.DataFrame(sla_rows), "pipeline_sla_status",
 
 DQ_EXPECTATIONS = [
     # S.06.02 pipeline
-    {"pipeline": "S.06.02 List of Assets", "table": "assets_enriched",
+    {"pipeline": "S.06.02 List of Assets", "table": "2_stg_assets_enriched",
      "expectation": "asset_id_not_null", "action": "DROP ROW", "base_total": 5000},
-    {"pipeline": "S.06.02 List of Assets", "table": "assets_enriched",
+    {"pipeline": "S.06.02 List of Assets", "table": "2_stg_assets_enriched",
      "expectation": "sii_value_positive", "action": "FAIL UPDATE", "base_total": 5000},
-    {"pipeline": "S.06.02 List of Assets", "table": "assets_enriched",
+    {"pipeline": "S.06.02 List of Assets", "table": "2_stg_assets_enriched",
      "expectation": "cic_code_valid", "action": "DROP ROW", "base_total": 5000},
-    {"pipeline": "S.06.02 List of Assets", "table": "assets_enriched",
+    {"pipeline": "S.06.02 List of Assets", "table": "2_stg_assets_enriched",
      "expectation": "currency_not_null", "action": "DROP ROW", "base_total": 5000},
-    {"pipeline": "S.06.02 List of Assets", "table": "s0602_list_of_assets",
+    {"pipeline": "S.06.02 List of Assets", "table": "3_qrt_s0602_list_of_assets",
      "expectation": "c0040_asset_id_present", "action": "DROP ROW", "base_total": 5000},
-    {"pipeline": "S.06.02 List of Assets", "table": "s0602_list_of_assets",
+    {"pipeline": "S.06.02 List of Assets", "table": "3_qrt_s0602_list_of_assets",
      "expectation": "c0170_sii_positive", "action": "FAIL UPDATE", "base_total": 5000},
     # S.05.01 pipeline
-    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "premiums_by_lob",
+    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "2_stg_premiums_by_lob",
      "expectation": "gross_written_positive", "action": "DROP ROW", "base_total": 7},
-    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "premiums_by_lob",
+    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "2_stg_premiums_by_lob",
      "expectation": "net_equals_gross_minus_ri", "action": "WARN", "base_total": 7},
-    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "claims_by_lob",
+    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "2_stg_claims_by_lob",
      "expectation": "gross_incurred_positive", "action": "DROP ROW", "base_total": 7},
-    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "s0501_summary",
+    {"pipeline": "S.05.01 Premiums Claims Expenses", "table": "3_qrt_s0501_summary",
      "expectation": "combined_ratio_realistic", "action": "DROP ROW", "base_total": 7},
     # S.25.01 pipeline
-    {"pipeline": "S.25.01 SCR Template", "table": "s2501_scr_breakdown",
+    {"pipeline": "S.25.01 SCR Template", "table": "3_qrt_s2501_scr_breakdown",
      "expectation": "row_id_present", "action": "DROP ROW", "base_total": 17},
-    {"pipeline": "S.25.01 SCR Template", "table": "s2501_scr_breakdown",
+    {"pipeline": "S.25.01 SCR Template", "table": "3_qrt_s2501_scr_breakdown",
      "expectation": "amount_not_null", "action": "DROP ROW", "base_total": 17},
-    {"pipeline": "S.25.01 SCR Template", "table": "s2501_summary",
+    {"pipeline": "S.25.01 SCR Template", "table": "3_qrt_s2501_summary",
      "expectation": "solvency_ratio_positive", "action": "FAIL UPDATE", "base_total": 1},
-    {"pipeline": "S.25.01 SCR Template", "table": "s2501_summary",
+    {"pipeline": "S.25.01 SCR Template", "table": "3_qrt_s2501_summary",
      "expectation": "scr_positive", "action": "FAIL UPDATE", "base_total": 1},
 ]
 
@@ -1264,7 +1268,7 @@ for exp in DQ_EXPECTATIONS:
         "evaluated_at": sla_deadline - timedelta(hours=int(rng.uniform(1, 48))),
     })
 
-write_quarterly_table(pd.DataFrame(dq_rows), "dq_expectation_results",
+write_quarterly_table(pd.DataFrame(dq_rows), "5_mon_dq_expectation_results",
             "DQ expectation results — pass/fail rates from DLT pipeline expectations")
 
 # COMMAND ----------
@@ -1276,11 +1280,11 @@ write_quarterly_table(pd.DataFrame(dq_rows), "dq_expectation_results",
 
 recon_rows = []
 
-# Check 1: Total SII assets (S.06.02) vs balance sheet
+# Check 1: Total SII 1_raw_assets (S.06.02) vs balance sheet
 try:
     s0602_total = float(spark.sql(f"""
         SELECT SUM(CAST(C0170_Total_Solvency_II_Amount AS DOUBLE))
-        FROM {catalog}.{schema}.s0602_list_of_assets
+        FROM {catalog}.{schema}.`3_qrt_s0602_list_of_assets`
         WHERE reporting_period = '{reporting_period}'
     """).first()[0] or 0)
 except Exception:
@@ -1289,7 +1293,7 @@ except Exception:
 try:
     bs_total = float(spark.sql(f"""
         SELECT CAST(amount_eur AS DOUBLE)
-        FROM {catalog}.{schema}.balance_sheet
+        FROM {catalog}.{schema}.`1_raw_balance_sheet`
         WHERE item = 'total_assets' AND reporting_period = '{reporting_period}'
     """).first()[0] or 0)
 except Exception:
@@ -1299,7 +1303,7 @@ diff = abs(s0602_total - bs_total)
 recon_rows.append({
     "reporting_period": reporting_period,
     "check_name": "total_assets_s0602_vs_balance_sheet",
-    "check_description": "Total SII assets from S.06.02 should match balance sheet total assets",
+    "check_description": "Total SII 1_raw_assets from S.06.02 should match balance sheet total assets",
     "source_qrt": "S.06.02",
     "target_qrt": "Balance Sheet",
     "source_value": round(s0602_total, 2),
@@ -1313,7 +1317,7 @@ recon_rows.append({
 try:
     s0501_gwp = float(spark.sql(f"""
         SELECT SUM(CAST(amount_eur AS DOUBLE))
-        FROM {catalog}.{schema}.s0501_premiums_claims_expenses
+        FROM {catalog}.{schema}.`3_qrt_s0501_premiums_claims_expenses`
         WHERE template_row_id = 'R0110' AND lob_code = 0 AND reporting_period = '{reporting_period}'
     """).first()[0] or 0)
 except Exception:
@@ -1322,7 +1326,7 @@ except Exception:
 try:
     prem_gwp = float(spark.sql(f"""
         SELECT SUM(gross_written_premium)
-        FROM {catalog}.{schema}.premiums
+        FROM {catalog}.{schema}.`1_raw_premiums`
         WHERE reporting_period = '{reporting_period}'
     """).first()[0] or 0)
 except Exception:
@@ -1346,7 +1350,7 @@ recon_rows.append({
 try:
     solv = spark.sql(f"""
         SELECT scr_eur, eligible_own_funds_eur
-        FROM {catalog}.{schema}.s2501_summary
+        FROM {catalog}.{schema}.`3_qrt_s2501_summary`
         WHERE reporting_period = '{reporting_period}'
     """).first()
     scr_val = float(solv[0] or 0)
@@ -1368,10 +1372,10 @@ recon_rows.append({
     "status": "MATCH" if eof_val > scr_val else "MISMATCH",
 })
 
-# Check 4: Number of assets in S.06.02 vs raw assets table
+# Check 4: Number of 1_raw_assets in S.06.02 vs raw 1_raw_assets table
 try:
     qrt_count = int(spark.sql(f"""
-        SELECT COUNT(*) FROM {catalog}.{schema}.s0602_list_of_assets
+        SELECT COUNT(*) FROM {catalog}.{schema}.`3_qrt_s0602_list_of_assets`
         WHERE reporting_period = '{reporting_period}'
     """).first()[0] or 0)
 except Exception:
@@ -1380,7 +1384,7 @@ except Exception:
 recon_rows.append({
     "reporting_period": reporting_period,
     "check_name": "asset_count_s0602_vs_raw",
-    "check_description": "Asset count in S.06.02 should match raw assets (minus DQ drops)",
+    "check_description": "Asset count in S.06.02 should match raw 1_raw_assets (minus DQ drops)",
     "source_qrt": "S.06.02",
     "target_qrt": "Assets (Bronze)",
     "source_value": float(qrt_count),
@@ -1390,7 +1394,7 @@ recon_rows.append({
     "status": "MATCH" if abs(qrt_count - N_ASSETS) <= 10 else "WITHIN_TOLERANCE",
 })
 
-write_quarterly_table(pd.DataFrame(recon_rows), "cross_qrt_reconciliation",
+write_quarterly_table(pd.DataFrame(recon_rows), "5_mon_cross_qrt_reconciliation",
             "Cross-QRT reconciliation checks — consistency validation between QRTs")
 
 # COMMAND ----------
@@ -1405,7 +1409,7 @@ model_rows = []
 # Champion (v1, 2025 calibration) — used for all quarters
 try:
     champ_scr = float(spark.sql(f"""
-        SELECT amount_eur FROM {catalog}.{schema}.scr_results
+        SELECT amount_eur FROM {catalog}.{schema}.`2_stg_scr_results`
         WHERE component = 'SCR' AND reporting_period = '{reporting_period}'
     """).first()[0] or 0)
 except Exception:
@@ -1437,7 +1441,7 @@ model_rows.append({
     "description": "EIOPA 2026 Updated Calibration — tighter market/NL correlation, higher op risk",
 })
 
-write_quarterly_table(pd.DataFrame(model_rows), "model_registry_log",
+write_quarterly_table(pd.DataFrame(model_rows), "5_mon_model_registry_log",
             "Model version usage log — Champion vs Challenger SCR results per quarter")
 
 # COMMAND ----------
@@ -1456,11 +1460,11 @@ print(f"  Mode:    {mode}")
 print()
 
 tables = [
-    "counterparties", "assets", "policies", "premiums", "claims", "expenses",
-    "reinsurance", "claims_triangles", "risk_factors", "scr_parameters",
-    "volume_measures", "exposures", "igloo_results", "own_funds", "balance_sheet",
-    "pipeline_sla_status", "dq_expectation_results", "cross_qrt_reconciliation",
-    "model_registry_log",
+    "1_raw_counterparties", "1_raw_assets", "1_raw_policies", "1_raw_premiums", "1_raw_claims", "1_raw_expenses",
+    "1_raw_reinsurance", "1_raw_claims_triangles", "1_raw_risk_factors", "7_ref_scr_parameters",
+    "1_raw_volume_measures", "1_raw_exposures", "4_eng_stochastic_results", "1_raw_own_funds", "1_raw_balance_sheet",
+    "5_mon_pipeline_sla_status", "5_mon_dq_expectation_results", "5_mon_cross_qrt_reconciliation",
+    "5_mon_model_registry_log",
 ]
 
 for t in tables:

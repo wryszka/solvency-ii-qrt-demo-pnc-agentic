@@ -25,14 +25,14 @@
 # COMMAND ----------
 
 dbutils.widgets.text("catalog_name", "lr_serverless_aws_us_catalog")
-dbutils.widgets.text("schema_name", "solvency2demo")
+dbutils.widgets.text("schema_name", "solvency2demo_agentic")
 dbutils.widgets.text("target_period", "2025-Q3")
 
 catalog = dbutils.widgets.get("catalog_name")
 schema = dbutils.widgets.get("schema_name")
 period = dbutils.widgets.get("target_period")
 
-fqn = lambda t: f"{catalog}.{schema}.{t}"
+fqn = lambda t: f"`{catalog}`.`{schema}`.`{t}`"
 
 print(f"Injecting gotchas into {catalog}.{schema} for {period}")
 
@@ -48,7 +48,7 @@ print(f"Injecting gotchas into {catalog}.{schema} for {period}")
 # COMMAND ----------
 
 spark.sql(f"""
-    INSERT INTO {fqn('claims')} VALUES (
+    INSERT INTO {fqn('1_raw_claims')} VALUES (
         'CLM-{period}-7-FIRE01',   -- claim_id (distinctive for demo)
         'POL007777',                -- policy_id
         7,                          -- lob_code (Fire & property)
@@ -79,7 +79,7 @@ print("  -> This will push Property combined ratio from ~85% to ~97%")
 # MAGIC ## Gotcha 2: Reinsurance Cession Rate Quietly Dropped
 # MAGIC
 # MAGIC Property (LoB 7) cession rate dropped from 30% to 18% at the January renewal.
-# MAGIC The reinsurance table still shows the old 30% rate (treaty not updated),
+# MAGIC The 1_raw_reinsurance table still shows the old 30% rate (treaty not updated),
 # MAGIC but the actual premium and claims data reflects the new 18% rate.
 # MAGIC
 # MAGIC The AI should notice: "Gross premium up 3% but net premium up 18% for Property —
@@ -87,10 +87,10 @@ print("  -> This will push Property combined ratio from ~85% to ~97%")
 
 # COMMAND ----------
 
-# Reduce the RI share on all Property Q3 premiums to reflect the new 18% cession
+# Reduce the RI share on all Property Q3 1_raw_premiums to reflect the new 18% cession
 # (previously generated with 30% cession)
 spark.sql(f"""
-    UPDATE {fqn('premiums')}
+    UPDATE {fqn('1_raw_premiums')}
     SET reinsurers_share_written = ROUND(gross_written_premium * 0.18, 2),
         reinsurers_share_earned  = ROUND(gross_earned_premium * 0.18, 2),
         net_written_premium      = ROUND(gross_written_premium * 0.82, 2),
@@ -100,7 +100,7 @@ spark.sql(f"""
 
 # Also reduce RI share on Property claims (except the large fire which we already set to 20%)
 spark.sql(f"""
-    UPDATE {fqn('claims')}
+    UPDATE {fqn('1_raw_claims')}
     SET reinsurers_share_paid     = ROUND(gross_paid * 0.18, 2),
         reinsurers_share_incurred = ROUND(gross_incurred * 0.18, 2),
         net_paid                  = ROUND(gross_paid * 0.82, 2),
@@ -130,7 +130,7 @@ print("  -> Net risk exposure jumped ~17% without anyone explicitly flagging it"
 
 # Lower the duration on government bonds
 spark.sql(f"""
-    UPDATE {fqn('assets')}
+    UPDATE {fqn('1_raw_assets')}
     SET modified_duration = ROUND(modified_duration * 0.45, 2)
     WHERE asset_class = 'government_bonds'
       AND reporting_period = '{period}'
@@ -140,7 +140,7 @@ spark.sql(f"""
 avg_dur = spark.sql(f"""
     SELECT ROUND(AVG(modified_duration), 1) AS avg_dur,
            COUNT(*) AS n_bonds
-    FROM {fqn('assets')}
+    FROM {fqn('1_raw_assets')}
     WHERE asset_class = 'government_bonds'
       AND reporting_period = '{period}'
 """).first()
@@ -163,7 +163,7 @@ print("  -> AI should question: 'Duration implies DV01 of X, but market risk cha
 
 # Make windstorm TVaR almost equal to VaR (thin tail)
 spark.sql(f"""
-    UPDATE {fqn('igloo_results')}
+    UPDATE {fqn('4_eng_stochastic_results')}
     SET tvar_gross_eur = ROUND(var_gross_eur * 1.12, 2),
         tvar_net_eur   = ROUND(var_net_eur * 1.12, 2),
         tvar_ceded_eur = ROUND(var_ceded_eur * 1.12, 2)
@@ -176,7 +176,7 @@ spark.sql(f"""
 ratios = spark.sql(f"""
     SELECT peril, return_period,
            ROUND(tvar_net_eur / NULLIF(var_net_eur, 0), 2) AS tvar_var_ratio
-    FROM {fqn('igloo_results')}
+    FROM {fqn('4_eng_stochastic_results')}
     WHERE reporting_period = '{period}'
       AND return_period = 200
     ORDER BY tvar_var_ratio

@@ -61,9 +61,9 @@ spark.sql(f"USE CATALOG {catalog}")
 spark.sql(f"USE SCHEMA {schema}")
 
 tables = [
-    "counterparties", "assets", "policies", "premiums", "claims", "expenses",
-    "reinsurance", "claims_triangles", "risk_factors", "scr_parameters",
-    "volume_measures", "exposures", "igloo_results", "own_funds", "balance_sheet",
+    "1_raw_counterparties", "1_raw_assets", "1_raw_policies", "1_raw_premiums", "1_raw_claims", "1_raw_expenses",
+    "1_raw_reinsurance", "1_raw_claims_triangles", "1_raw_risk_factors", "7_ref_scr_parameters",
+    "1_raw_volume_measures", "1_raw_exposures", "4_eng_stochastic_results", "1_raw_own_funds", "1_raw_balance_sheet",
 ]
 
 print("=" * 70)

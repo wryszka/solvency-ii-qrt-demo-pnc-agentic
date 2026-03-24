@@ -5,7 +5,7 @@
 # MAGIC **Removes everything** created by this demo, leaving no trace behind.
 # MAGIC
 # MAGIC What gets deleted:
-# MAGIC - All tables in the demo schema (bronze, silver, gold, scr_results, own_funds, etc.)
+# MAGIC - All tables in the demo schema (bronze, silver, gold, 2_stg_scr_results, 1_raw_own_funds, etc.)
 # MAGIC - The schema itself
 # MAGIC - The MLflow model (`standard_formula`) from Unity Catalog
 # MAGIC - The Databricks App (`solvency2-qrt-ai`)

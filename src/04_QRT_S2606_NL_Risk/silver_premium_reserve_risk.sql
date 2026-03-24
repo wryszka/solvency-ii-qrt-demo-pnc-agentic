@@ -8,12 +8,12 @@
 -- MAGIC **Formula:** Risk charge = 3 * sigma * volume_measure
 -- MAGIC (approximation of VaR 99.5% assuming lognormal distribution)
 -- MAGIC
--- MAGIC **Source:** `volume_measures`
--- MAGIC **Target:** `premium_reserve_risk`
+-- MAGIC **Source:** `1_raw_volume_measures`
+-- MAGIC **Target:** `2_stg_premium_reserve_risk`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW premium_reserve_risk(
+CREATE OR REFRESH MATERIALIZED VIEW `2_stg_premium_reserve_risk`(
   CONSTRAINT volume_positive       EXPECT (volume_measure_eur > 0)    ON VIOLATION DROP ROW,
   CONSTRAINT premium_risk_positive EXPECT (premium_risk_eur >= 0)     ON VIOLATION DROP ROW,
   CONSTRAINT reserve_risk_positive EXPECT (reserve_risk_eur >= 0)     ON VIOLATION DROP ROW
@@ -73,5 +73,5 @@ SELECT
     END * best_estimate_claims_provision, 2)
         AS reserve_risk_eur
 
-FROM LIVE.volume_measures
-WHERE reporting_period = (SELECT MAX(reporting_period) FROM LIVE.volume_measures)
+FROM LIVE.`1_raw_volume_measures`
+WHERE reporting_period = (SELECT MAX(reporting_period) FROM LIVE.`1_raw_volume_measures`)

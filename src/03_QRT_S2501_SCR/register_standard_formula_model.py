@@ -57,7 +57,7 @@ class StandardFormulaModel(mlflow.pyfunc.PythonModel):
       - market_correlation: 6x6 correlation matrix between market sub-modules
       - nl_prem_res_factors: premium & reserve risk factors by LoB
       - nl_correlation: correlation matrix between non-life LoBs
-      - op_risk_factor: operational risk as % of earned premiums
+      - op_risk_factor: operational risk as % of earned 1_raw_premiums
       - lac_dt_cap: loss-absorbing capacity of deferred taxes cap (%)
       - calibration_year: 2025 or 2026
     """
@@ -415,9 +415,9 @@ print(f"✓ Alias 'Challenger' → Version {v2} (2026 calibration)")
 # Load sample risk factors from the latest quarter
 risk_factors_df = spark.sql(f"""
     SELECT risk_module, risk_sub_module, charge_eur
-    FROM {catalog}.{schema}.risk_factors
+    FROM {catalog}.{schema}.`1_raw_risk_factors`
     WHERE reporting_period = (
-        SELECT MAX(reporting_period) FROM {catalog}.{schema}.risk_factors
+        SELECT MAX(reporting_period) FROM {catalog}.{schema}.`1_raw_risk_factors`
     )
 """).toPandas()
 

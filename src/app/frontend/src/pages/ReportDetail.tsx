@@ -1234,7 +1234,7 @@ function S0501Template({ data }: { data: Row[] }) {
   return (
     <div className="bg-white rounded-lg border-2 border-gray-300 overflow-x-auto">
       <div className="bg-blue-900 text-white px-4 py-2 text-sm font-bold">
-        S.05.01.02 — Non-Life — Premiums, claims and expenses by line of business
+        S.05.01.02 — Non-Life — Premiums, 1_raw_claims and 1_raw_expenses by line of business
       </div>
       <table className="min-w-full text-xs">
         <thead>
@@ -1523,7 +1523,7 @@ function StochasticEngineTab() {
 
               <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
                 <span className="text-xs text-gray-400">
-                  {result.exposure_count} exposures | {result.result_count} results | Period: {result.reporting_period}
+                  {result.exposure_count} 1_raw_exposures | {result.result_count} results | Period: {result.reporting_period}
                 </span>
                 <button onClick={handleReview} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
                   Re-review

@@ -11,12 +11,12 @@
 -- MAGIC - Solvency ratio = Eligible own funds / SCR
 -- MAGIC - MCR ratio = Eligible own funds / MCR
 -- MAGIC
--- MAGIC **Sources:** `s2501_scr_breakdown`, `own_funds`
--- MAGIC **Target:** `s2501_summary` (validation view)
+-- MAGIC **Sources:** `3_qrt_s2501_scr_breakdown`, `1_raw_own_funds`
+-- MAGIC **Target:** `3_qrt_s2501_summary` (validation view)
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW s2501_summary(
+CREATE OR REFRESH MATERIALIZED VIEW `3_qrt_s2501_summary`(
   CONSTRAINT solvency_ratio_positive EXPECT (solvency_ratio_pct > 0) ON VIOLATION FAIL UPDATE,
   CONSTRAINT scr_positive            EXPECT (scr_eur > 0)            ON VIOLATION FAIL UPDATE
 )
@@ -36,7 +36,7 @@ WITH scr AS (
     MAX(CASE WHEN template_row_id = 'R0130' THEN amount_eur END) AS op_risk_eur,
     MAX(CASE WHEN template_row_id = 'R0150' THEN amount_eur END) AS lac_dt_eur,
     MAX(CASE WHEN template_row_id = 'R0200' THEN amount_eur END) AS scr_eur
-  FROM LIVE.s2501_scr_breakdown
+  FROM LIVE.`3_qrt_s2501_scr_breakdown`
   GROUP BY reporting_period, model_version, calibration_year
 ),
 funds AS (
@@ -46,7 +46,7 @@ funds AS (
     SUM(CASE WHEN tier = 2 THEN amount_eur ELSE 0 END) AS tier2_eur,
     SUM(CASE WHEN tier = 3 THEN amount_eur ELSE 0 END) AS tier3_eur,
     SUM(amount_eur)                                      AS total_own_funds_eur
-  FROM LIVE.own_funds
+  FROM LIVE.`1_raw_own_funds`
   GROUP BY reporting_period
 )
 SELECT

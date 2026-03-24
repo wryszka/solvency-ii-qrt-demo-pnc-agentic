@@ -10,12 +10,12 @@
 -- MAGIC - Asset counts match the investment register
 -- MAGIC - No unexpected CIC categories
 -- MAGIC
--- MAGIC **Source:** `s0602_list_of_assets`
--- MAGIC **Target:** `s0602_summary` (validation view)
+-- MAGIC **Source:** `3_qrt_s0602_list_of_assets`
+-- MAGIC **Target:** `3_qrt_s0602_summary` (validation view)
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW s0602_summary(
+CREATE OR REFRESH MATERIALIZED VIEW `3_qrt_s0602_summary`(
   CONSTRAINT total_sii_positive EXPECT (total_sii_amount > 0) ON VIOLATION FAIL UPDATE
 )
 COMMENT 'S.06.02 validation summary — totals by CIC category for actuarial review and sign-off'
@@ -48,7 +48,7 @@ SELECT
                                         AS investment_grade_count,
     AVG(C0340_Duration)                 AS avg_duration
 
-FROM LIVE.s0602_list_of_assets
+FROM LIVE.`3_qrt_s0602_list_of_assets`
 GROUP BY
     reporting_period,
     SUBSTRING(C0270_CIC, 3, 1)

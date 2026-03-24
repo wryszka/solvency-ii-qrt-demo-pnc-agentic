@@ -125,7 +125,7 @@ databricks jobs submit --json '{...}'  # see deploy_demo.sh for pattern
 
 > "Here's the pipeline graph. Three data streams — premiums, claims, expenses — flow through silver aggregation, merge into the EIOPA template, then produce the summary ratios."
 
-**Click a node** (e.g., `premiums_by_lob`) → show:
+**Click a node** (e.g., `2_stg_premiums_by_lob`) → show:
 - The SQL transformation
 - `CONSTRAINT gross_written_positive EXPECT (gross_written_premium > 0) ON VIOLATION DROP ROW`
 
@@ -351,26 +351,26 @@ Type: *"Prepare a response to BaFin regarding the property combined ratio spike 
 │ own_funds, exposures ...  │                                        │
 ├───────────────────────────┼────────────────────────────────────────┤
 │ Silver (DLT)              │ Aggregation + validation               │
-│ assets_enriched,          │ DLT expectations = quality gates       │
-│ premiums_by_lob,          │ Bad data quarantined, not propagated   │
-│ cat_risk_by_lob ...       │                                        │
+│ 2_stg_assets_enriched,          │ DLT expectations = quality gates       │
+│ 2_stg_premiums_by_lob,          │ Bad data quarantined, not propagated   │
+│ 2_stg_cat_risk_by_lob ...       │                                        │
 ├───────────────────────────┼────────────────────────────────────────┤
 │ Gold (DLT)                │ EIOPA template mapping                 │
-│ s0602_list_of_assets,     │ Cell references (C0040, R0110 etc.)    │
+│ 3_qrt_s0602_list_of_assets,     │ Cell references (C0040, R0110 etc.)    │
 │ s0501_premiums_claims_... │ Directly maps to regulatory forms      │
-│ s2501_scr_breakdown,      │                                        │
-│ s2606_nl_uw_risk          │                                        │
+│ 3_qrt_s2501_scr_breakdown,      │                                        │
+│ 3_qrt_s2606_nl_uw_risk          │                                        │
 ├───────────────────────────┼────────────────────────────────────────┤
 │ Summary (DLT)             │ Sign-off views for actuaries           │
-│ s0602_summary,            │ Ratios, totals, reconciliation checks  │
-│ s0501_summary,            │                                        │
-│ s2501_summary,            │                                        │
-│ s2606_summary             │                                        │
+│ 3_qrt_s0602_summary,            │ Ratios, totals, reconciliation checks  │
+│ 3_qrt_s0501_summary,            │                                        │
+│ 3_qrt_s2501_summary,            │                                        │
+│ 3_qrt_s2606_summary             │                                        │
 ├───────────────────────────┼────────────────────────────────────────┤
-│ Monitoring (4 tables)     │ pipeline_sla_status,                   │
-│                           │ dq_expectation_results,                │
-│                           │ cross_qrt_reconciliation,              │
-│                           │ model_registry_log                     │
+│ Monitoring (4 tables)     │ 5_mon_pipeline_sla_status,                   │
+│                           │ 5_mon_dq_expectation_results,                │
+│                           │ 5_mon_cross_qrt_reconciliation,              │
+│                           │ 5_mon_model_registry_log                     │
 └───────────────────────────┴────────────────────────────────────────┘
 ```
 
@@ -378,10 +378,10 @@ Type: *"Prepare a response to BaFin regarding the property combined ratio spike 
 
 | QRT | Pipeline | Steps | Unique Feature |
 |-----|----------|-------|----------------|
-| S.06.02 | assets → enriched → EIOPA template → summary | 5 | CIC decomposition |
-| S.05.01 | 3 parallel streams (premiums/claims/expenses) → merge → EIOPA → ratios | 8 | Fan-in from 3 sources |
-| S.25.01 | risk_factors → MLflow model → EIOPA template → solvency ratio | 6 | Unity Catalog model |
-| S.26.06 | exposures → Igloo (Volume CSV) → cat risk + prem/res risk → EIOPA | 9 | Stochastic model handoff |
+| S.06.02 | 1_raw_assets → enriched → EIOPA template → summary | 5 | CIC decomposition |
+| S.05.01 | 3 parallel streams (premiums/claims/1_raw_expenses) → merge → EIOPA → ratios | 8 | Fan-in from 3 sources |
+| S.25.01 | 1_raw_risk_factors → MLflow model → EIOPA template → solvency ratio | 6 | Unity Catalog model |
+| S.26.06 | 1_raw_exposures → Igloo (Volume CSV) → cat risk + prem/res risk → EIOPA | 9 | Stochastic model handoff |
 
 ### App Pages
 
@@ -438,7 +438,7 @@ The dashboard was created but not published, or `queryLines` have issues. Re-run
 Tables must be in `serialized_space.data_sources.tables[].identifier` (sorted alphabetically). The deploy script handles this. Max 30 tables per space.
 
 **S.26.06 pipeline fails:**
-The `run_igloo` task needs the `exposures` and `igloo_results` tables to exist (created by `generate_data.py`). Run `bootstrap_archive.py` first.
+The `run_igloo` task needs the `1_raw_exposures` and `4_eng_stochastic_results` tables to exist (created by `generate_data.py`). Run `bootstrap_archive.py` first.
 
 **Pipeline shows "NOTEBOOK_NOT_FOUND":**
 Run `databricks bundle deploy` to sync notebooks to the `.bundle` workspace path. Clear local sync state first: `rm -rf .databricks/bundle/dev/sync-snapshots .databricks/bundle/dev/fileset-snapshots`

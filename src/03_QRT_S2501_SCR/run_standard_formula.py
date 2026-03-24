@@ -4,11 +4,11 @@
 # MAGIC
 # MAGIC Loads the **Champion** version of the Standard Formula model from Unity Catalog,
 # MAGIC runs it against each quarter's risk factor charges, and writes the SCR breakdown
-# MAGIC to `scr_results`.
+# MAGIC to `2_stg_scr_results`.
 # MAGIC
-# MAGIC **Input:** `risk_factors` (per-quarter sub-module charges)
+# MAGIC **Input:** `1_raw_risk_factors` (per-quarter sub-module charges)
 # MAGIC **Model:** `standard_formula` @ Champion alias
-# MAGIC **Output:** `scr_results` (SCR breakdown per quarter)
+# MAGIC **Output:** `2_stg_scr_results` (SCR breakdown per quarter)
 
 # COMMAND ----------
 
@@ -27,7 +27,7 @@ except Exception:
     schema = "solvency2demo_ai"
 
 model_name = f"{catalog}.{schema}.standard_formula"
-full_table = f"{catalog}.{schema}.scr_results"
+full_table = f"{catalog}.{schema}.`2_stg_scr_results`"
 
 print(f"Catalog:  {catalog}")
 print(f"Schema:   {schema}")
@@ -64,7 +64,7 @@ print(f"  LAC_DT cap:        {cal['lac_dt_cap']*100:.1f}%")
 # Get all reporting periods
 periods_df = spark.sql(f"""
     SELECT DISTINCT reporting_period
-    FROM {catalog}.{schema}.risk_factors
+    FROM {catalog}.{schema}.`1_raw_risk_factors`
     ORDER BY reporting_period
 """).toPandas()
 
@@ -80,7 +80,7 @@ for _, row in periods_df.iterrows():
     # Load risk factors for this quarter
     rf = spark.sql(f"""
         SELECT risk_module, risk_sub_module, charge_eur
-        FROM {catalog}.{schema}.risk_factors
+        FROM {catalog}.{schema}.`1_raw_risk_factors`
         WHERE reporting_period = '{rp}'
     """).toPandas()
 

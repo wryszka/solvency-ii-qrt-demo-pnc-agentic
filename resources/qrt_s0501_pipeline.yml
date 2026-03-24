@@ -2,9 +2,9 @@
 #
 # DAG (visible in Databricks Workflows):
 #
-#   premiums → premiums_by_lob ──╮
-#   claims   → claims_by_lob   ──┼──→ s0501_premiums_claims_expenses → s0501_summary
-#   expenses → expenses_by_lob ──╯
+#   1_raw_premiums → 2_stg_premiums_by_lob ──╮
+#   1_raw_claims   → 2_stg_claims_by_lob   ──┼──→ 3_qrt_s0501_premiums_claims_expenses → 3_qrt_s0501_summary
+#   1_raw_expenses → 2_stg_expenses_by_lob ──╯
 #   (raw)      (aggregated)          (EIOPA template, long format)     (sign-off view)
 #
 # The DLT pipeline graph shows the same flow with DQ expectations at each step.

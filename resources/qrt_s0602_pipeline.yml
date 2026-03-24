@@ -2,7 +2,7 @@
 #
 # DAG (visible in Databricks Workflows):
 #
-#   assets ──→ assets_enriched ──→ s0602_list_of_assets ──→ s0602_summary
+#   1_raw_assets ──→ 2_stg_assets_enriched ──→ 3_qrt_s0602_list_of_assets ──→ 3_qrt_s0602_summary
 #   (raw)      (CIC, SII val)      (EIOPA template)         (sign-off view)
 #
 # The DLT pipeline graph shows the same flow with DQ expectations at each step.

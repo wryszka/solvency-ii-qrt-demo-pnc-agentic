@@ -5,12 +5,12 @@
 -- MAGIC Aggregates raw **claims** transactions to quarterly totals per LoB.
 -- MAGIC Gross incurred, paid, reserved — with reinsurers' share and net.
 -- MAGIC
--- MAGIC **Source:** `claims`
--- MAGIC **Target:** `claims_by_lob`
+-- MAGIC **Source:** `1_raw_claims`
+-- MAGIC **Target:** `2_stg_claims_by_lob`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW claims_by_lob(
+CREATE OR REFRESH MATERIALIZED VIEW `2_stg_claims_by_lob`(
   CONSTRAINT gross_incurred_positive  EXPECT (gross_incurred > 0)           ON VIOLATION DROP ROW,
   CONSTRAINT net_leq_gross            EXPECT (net_incurred <= gross_incurred + 1.0)
 )
@@ -29,5 +29,5 @@ SELECT
     SUM(net_paid)                   AS net_paid,
     COUNT(*)                        AS claim_count,
     COUNT(CASE WHEN status = 'open' THEN 1 END) AS open_claims
-FROM LIVE.claims
+FROM LIVE.`1_raw_claims`
 GROUP BY reporting_period, lob_code, lob_name

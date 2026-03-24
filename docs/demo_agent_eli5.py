@@ -86,13 +86,13 @@
 
 # DBTITLE 1,First — the data looks normal at a glance
 catalog = "lr_serverless_aws_us_catalog"
-schema = "solvency2demo"
+schema = "solvency2demo_agentic"
 
 display(spark.sql(f"""
     SELECT lob_name, gross_written, net_earned, net_incurred,
            total_expenses, loss_ratio_pct, expense_ratio_pct, combined_ratio_pct
-    FROM {catalog}.{schema}.s0501_summary
-    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.s0501_summary)
+    FROM {catalog}.{schema}.3_qrt_s0501_summary
+    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.3_qrt_s0501_summary)
     ORDER BY lob_code
 """))
 
@@ -127,7 +127,7 @@ for model_name in ["databricks-claude-sonnet-4", "databricks-claude-3-7-sonnet",
         continue
 
 # Get the data
-summary = spark.sql(f"SELECT * FROM {catalog}.{schema}.s0501_summary ORDER BY reporting_period DESC LIMIT 2").toPandas()
+summary = spark.sql(f"SELECT * FROM {catalog}.{schema}.3_qrt_s0501_summary ORDER BY reporting_period DESC LIMIT 2").toPandas()
 
 response = w.serving_endpoints.query(
     name=endpoint,
@@ -224,6 +224,20 @@ print("\nThe AI stayed in its lane. It recommends — the human decides.")
 # MAGIC | No audit trail | Every call logged with user, model, tokens | Unity Catalog Tables |
 # MAGIC | AI makes decisions | Human-in-the-loop always | App Design |
 # MAGIC
+# MAGIC ### Data Organisation
+# MAGIC
+# MAGIC Tables are organised by numbered layers — you can see this in the Unity Catalog explorer:
+# MAGIC
+# MAGIC | Prefix | Layer | Example | AI can read? |
+# MAGIC |--------|-------|---------|-------------|
+# MAGIC | `1_raw_*` | Bronze (source feeds) | `1_raw_claims`, `1_raw_assets` | NO |
+# MAGIC | `2_stg_*` | Silver (cleansed) | `2_stg_premiums_by_lob` | NO |
+# MAGIC | `3_qrt_*` | Gold (QRT output) | `3_qrt_s0501_summary` | YES (summaries only) |
+# MAGIC | `4_eng_*` | Stochastic engine | `4_eng_stochastic_results` | YES |
+# MAGIC | `5_mon_*` | Monitoring | `5_mon_dq_expectation_results` | YES |
+# MAGIC | `6_ai_*` | AI agent outputs | `6_ai_reviews` | Writes only |
+# MAGIC | `7_ref_*` | Reference data | `7_ref_scr_parameters` | YES |
+# MAGIC
 # MAGIC Full details: see the `agentic_security_framework` notebook.
 
 # COMMAND ----------
@@ -238,7 +252,7 @@ display(spark.sql(f"""
     SELECT review_id, qrt_id, reporting_period,
            model_used, input_tokens, output_tokens,
            created_at, created_by
-    FROM {catalog}.{schema}.qrt_ai_reviews
+    FROM {catalog}.{schema}.6_ai_reviews
     ORDER BY created_at DESC
     LIMIT 5
 """))

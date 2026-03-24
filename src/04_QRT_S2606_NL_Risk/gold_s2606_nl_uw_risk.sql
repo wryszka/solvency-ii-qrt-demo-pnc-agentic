@@ -6,12 +6,12 @@
 -- MAGIC EIOPA S.26.06 template. Applies correlation (0.25) between
 -- MAGIC premium/reserve and catastrophe sub-modules.
 -- MAGIC
--- MAGIC **Sources:** `premium_reserve_risk`, `cat_risk_by_lob`
--- MAGIC **Target:** `s2606_nl_uw_risk`
+-- MAGIC **Sources:** `2_stg_premium_reserve_risk`, `2_stg_cat_risk_by_lob`
+-- MAGIC **Target:** `3_qrt_s2606_nl_uw_risk`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW s2606_nl_uw_risk(
+CREATE OR REFRESH MATERIALIZED VIEW `3_qrt_s2606_nl_uw_risk`(
   CONSTRAINT row_id_present    EXPECT (template_row_id IS NOT NULL)  ON VIOLATION DROP ROW,
   CONSTRAINT amount_not_null   EXPECT (amount_eur IS NOT NULL)       ON VIOLATION DROP ROW
 )
@@ -28,7 +28,7 @@ WITH prem_res AS (
        + POWER(SUM(reserve_risk_eur), 2)
        + 2 * 0.5 * SUM(premium_risk_eur) * SUM(reserve_risk_eur))
       AS combined_prem_res_risk
-  FROM LIVE.premium_reserve_risk
+  FROM LIVE.`2_stg_premium_reserve_risk`
   GROUP BY reporting_period
 ),
 cat AS (
@@ -36,7 +36,7 @@ cat AS (
     reporting_period,
     SUM(var_net_eur)  AS total_cat_risk,
     SUM(tvar_net_eur) AS total_cat_tvar
-  FROM LIVE.cat_risk_by_lob
+  FROM LIVE.`2_stg_cat_risk_by_lob`
   GROUP BY reporting_period
 ),
 combined AS (

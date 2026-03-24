@@ -9,7 +9,7 @@
 # MAGIC 2. Run stochastic simulation (10,000 scenarios, 6 return periods)
 # MAGIC 3. Import results from Volume (VaR/TVaR by peril, LoB, return period)
 # MAGIC 4. Write to `igloo_run_results` table for downstream DLT consumption
-# MAGIC 5. Log the run to `igloo_run_log` for audit trail
+# MAGIC 5. Log the run to `4_eng_stochastic_run_log` for audit trail
 # MAGIC
 # MAGIC In production, steps 2-3 would be an API call to the Igloo server or a file watch on SFTP.
 # MAGIC Here we mock it using pre-generated stochastic output.
@@ -34,8 +34,8 @@ except Exception:
 spark.sql(f"USE CATALOG {catalog}")
 spark.sql(f"USE SCHEMA {schema}")
 
-# Get the latest reporting period from exposures
-rp = spark.sql("SELECT MAX(reporting_period) FROM exposures").first()[0]
+# Get the latest reporting period from 1_raw_exposures
+rp = spark.sql("SELECT MAX(reporting_period) FROM 1_raw_exposures").first()[0]
 
 run_id = str(uuid.uuid4())[:8]
 print(f"Catalog:           {catalog}")
@@ -51,18 +51,18 @@ print(f"Igloo run ID:      {run_id}")
 # COMMAND ----------
 
 # Ensure the exchange volume exists
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.igloo_exchange")
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.`4_eng_stochastic_exchange`")
 
-volume_base = f"/Volumes/{catalog}/{schema}/igloo_exchange"
+volume_base = f"/Volumes/{catalog}/{schema}/4_eng_stochastic_exchange"
 input_path = f"{volume_base}/input_exposures_{rp.replace('-', '')}.csv"
 
-# Read exposures for this period
+# Read 1_raw_exposures for this period
 exposures_df = spark.sql(f"""
     SELECT exposure_id, lob_code, lob_name, peril,
            number_of_risks, total_sum_insured_eur,
            aggregate_deductible_eur, aggregate_limit_eur,
            currency, reporting_period
-    FROM exposures
+    FROM 1_raw_exposures
     WHERE reporting_period = '{rp}'
 """)
 
@@ -117,7 +117,7 @@ print()
 
 # COMMAND ----------
 
-# Read the pre-generated igloo_results (our mock output)
+# Read the pre-generated 4_eng_stochastic_results (our mock output)
 results_df = spark.sql(f"""
     SELECT lob_code, lob_name, peril, return_period,
            var_gross_eur, tvar_gross_eur,
@@ -125,7 +125,7 @@ results_df = spark.sql(f"""
            var_net_eur, tvar_net_eur,
            num_simulations, model_version,
            reporting_period
-    FROM igloo_results
+    FROM 4_eng_stochastic_results
     WHERE reporting_period = '{rp}'
 """)
 
@@ -200,8 +200,8 @@ schema_def = StructType([
 ])
 
 log_df = spark.createDataFrame(run_log, schema=schema_def)
-log_df.write.format("delta").mode("append").saveAsTable(f"{catalog}.{schema}.igloo_run_log")
-spark.sql(f"COMMENT ON TABLE {catalog}.{schema}.igloo_run_log IS 'Igloo stochastic run audit log — timestamps, simulation parameters, file paths'")
+log_df.write.format("delta").mode("append").saveAsTable(f"{catalog}.{schema}.`4_eng_stochastic_run_log`")
+spark.sql(f"COMMENT ON TABLE {catalog}.{schema}.`4_eng_stochastic_run_log` IS 'Igloo stochastic run audit log — timestamps, simulation parameters, file paths'")
 
 # COMMAND ----------
 

@@ -2,11 +2,11 @@
 #
 # DAG (visible in Databricks Workflows):
 #
-#   exposures ──→ [Igloo 5.2.1] ──→ igloo_run_results ──→ cat_risk_by_lob ──╮
-#                 (stochastic)                                                ├──→ s2606_nl_uw_risk → s2606_summary
-#   volume_measures ──→ premium_reserve_risk ─────────────────────────────────╯    (EIOPA template)   (sign-off)
+#   1_raw_exposures ──→ [Igloo 5.2.1] ──→ igloo_run_results ──→ 2_stg_cat_risk_by_lob ──╮
+#                 (stochastic)                                                ├──→ 3_qrt_s2606_nl_uw_risk → 3_qrt_s2606_summary
+#   1_raw_volume_measures ──→ 2_stg_premium_reserve_risk ─────────────────────────────────╯    (EIOPA template)   (sign-off)
 #
-# Task 1: Runs the mock Igloo model (export exposures, import results)
+# Task 1: Runs the mock Igloo model (export 1_raw_exposures, import results)
 # Task 2: DLT pipeline computes silver risk charges and gold template
 
 resources:

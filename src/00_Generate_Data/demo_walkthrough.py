@@ -29,9 +29,9 @@
 # MAGIC ┌──────────────┐     ┌──────────────────────────────────────────────────────┐  ┌──────────────┐
 # MAGIC │              │     │                                                      │  │              │
 # MAGIC │  Simcorp     │────>│  BRONZE (15 tables)                                  │  │  Databricks  │
-# MAGIC │  (Investments)│     │  assets, premiums, claims, expenses,                 │  │  App         │
-# MAGIC │              │     │  risk_factors, own_funds, exposures,                  │  │  ┌────────┐  │
-# MAGIC ├──────────────┤     │  igloo_results, counterparties, ...                   │  │  │Monitor │  │
+# MAGIC │  (Investments)│     │  1_raw_assets, premiums, claims, expenses,                 │  │  App         │
+# MAGIC │              │     │  1_raw_risk_factors, own_funds, exposures,                  │  │  ┌────────┐  │
+# MAGIC ├──────────────┤     │  4_eng_stochastic_results, 1_raw_counterparties, ...                   │  │  │Monitor │  │
 # MAGIC │              │     │                                                      │  │  │Reports │  │
 # MAGIC │  Guidewire   │────>│         │              │              │               │  │  │DQ      │  │
 # MAGIC │  (Policies)  │     │         ▼              ▼              ▼               │  │  │Approve │  │
@@ -72,8 +72,8 @@
 # MAGIC                      │         ▼        ▼             ▼ ▼         │    │
 # MAGIC                      │                                                │    │
 # MAGIC                      │  SUMMARY (Actuarial Sign-off Views)            │    │
-# MAGIC                      │  s0602_summary  s0501_summary  s2501_summary   │    │
-# MAGIC                      │  s2606_summary  (ratios, totals, solvency)     │    │
+# MAGIC                      │  3_qrt_s0602_summary  3_qrt_s0501_summary  3_qrt_s2501_summary   │    │
+# MAGIC                      │  3_qrt_s2606_summary  (ratios, totals, solvency)     │    │
 # MAGIC                      │                                                │    │
 # MAGIC                      │         │                                      │    │
 # MAGIC                      │         ▼                                      │    │
@@ -94,7 +94,7 @@
 # MAGIC                      │  ┌─────────────────────────────────────────┐   │    │
 # MAGIC                      │  │ Submit → Review → Approve → Export      │   │    │
 # MAGIC                      │  │                                         │   │    │
-# MAGIC                      │  │ qrt_approvals table (audit trail)       │   │    │
+# MAGIC                      │  │ 6_ai_approvals table (audit trail)       │   │    │
 # MAGIC                      │  │ regulatory_exports/ Volume (CSV + PDF)  │   │    │
 # MAGIC                      │  │ Approval certificate (SHA-256 hash)     │   │    │
 # MAGIC                      │  └─────────────────────────────────────────┘   │    │
@@ -106,10 +106,10 @@
 # MAGIC
 # MAGIC | QRT | Pipeline | Key Feature | Tables |
 # MAGIC |-----|----------|-------------|--------|
-# MAGIC | **S.06.02** | assets → enriched → EIOPA template | CIC decomposition, SII valuation | 5K assets |
-# MAGIC | **S.05.01** | 3 parallel streams → merge → ratios | Fan-in from premiums + claims + expenses | 144 template rows |
-# MAGIC | **S.25.01** | risk_factors → MLflow model → template | Standard Formula from Unity Catalog | 17 SCR components |
-# MAGIC | **S.26.06** | exposures → Igloo → cat + prem/res risk | Stochastic model with Volume CSV exchange | 10K simulations |
+# MAGIC | **S.06.02** | 1_raw_assets → enriched → EIOPA template | CIC decomposition, SII valuation | 5K 1_raw_assets |
+# MAGIC | **S.05.01** | 3 parallel streams → merge → ratios | Fan-in from 1_raw_premiums + 1_raw_claims + 1_raw_expenses | 144 template rows |
+# MAGIC | **S.25.01** | 1_raw_risk_factors → MLflow model → template | Standard Formula from Unity Catalog | 17 SCR components |
+# MAGIC | **S.26.06** | 1_raw_exposures → Igloo → cat + prem/res risk | Stochastic model with Volume CSV exchange | 10K simulations |
 # MAGIC
 # MAGIC ---
 
@@ -152,8 +152,8 @@ for t in sorted(tables):
 # MAGIC   ROUND(dq_pass_rate * 100, 1) AS dq_pass_pct,
 # MAGIC   row_count,
 # MAGIC   notes
-# MAGIC FROM pipeline_sla_status
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM pipeline_sla_status)
+# MAGIC FROM 5_mon_pipeline_sla_status
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 5_mon_pipeline_sla_status)
 # MAGIC ORDER BY feed_name
 
 # COMMAND ----------
@@ -173,8 +173,8 @@ for t in sorted(tables):
 # MAGIC   ROUND(target_value / 1e6, 1) AS target_eur_m,
 # MAGIC   ROUND(difference / 1e6, 1) AS diff_eur_m,
 # MAGIC   status
-# MAGIC FROM cross_qrt_reconciliation
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM cross_qrt_reconciliation)
+# MAGIC FROM 5_mon_cross_qrt_reconciliation
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 5_mon_cross_qrt_reconciliation)
 # MAGIC ORDER BY check_name
 
 # COMMAND ----------
@@ -197,8 +197,8 @@ for t in sorted(tables):
 # MAGIC   failing_records,
 # MAGIC   ROUND(pass_rate * 100, 1) AS pass_rate_pct,
 # MAGIC   action
-# MAGIC FROM dq_expectation_results
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM dq_expectation_results)
+# MAGIC FROM 5_mon_dq_expectation_results
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 5_mon_dq_expectation_results)
 # MAGIC ORDER BY pipeline_name, table_name
 
 # COMMAND ----------
@@ -214,7 +214,7 @@ for t in sorted(tables):
 # MAGIC   SUM(total_records) AS total_records,
 # MAGIC   SUM(failing_records) AS quarantined_rows,
 # MAGIC   ROUND(SUM(passing_records) * 100.0 / SUM(total_records), 2) AS pass_rate_pct
-# MAGIC FROM dq_expectation_results
+# MAGIC FROM 5_mon_dq_expectation_results
 # MAGIC GROUP BY reporting_period
 # MAGIC ORDER BY reporting_period
 
@@ -240,8 +240,8 @@ for t in sorted(tables):
 # MAGIC   ROUND(SUM(sii_value) / 1e6, 1) AS total_sii_eur_m,
 # MAGIC   ROUND(SUM(sii_value) * 100.0 / SUM(SUM(sii_value)) OVER (), 1) AS pct_of_total,
 # MAGIC   ROUND(AVG(modified_duration), 1) AS avg_duration
-# MAGIC FROM assets_enriched
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM assets_enriched)
+# MAGIC FROM 2_stg_assets_enriched
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 2_stg_assets_enriched)
 # MAGIC GROUP BY cic_category_name
 # MAGIC ORDER BY total_sii_eur_m DESC
 
@@ -261,8 +261,8 @@ for t in sorted(tables):
 # MAGIC   C0290_External_Rating,
 # MAGIC   C0310_Credit_Quality_Step,
 # MAGIC   C0340_Duration
-# MAGIC FROM s0602_list_of_assets
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s0602_list_of_assets)
+# MAGIC FROM 3_qrt_s0602_list_of_assets
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s0602_list_of_assets)
 # MAGIC LIMIT 10
 
 # COMMAND ----------
@@ -286,10 +286,10 @@ for t in sorted(tables):
 # MAGIC   ROUND(p.gross_written_premium / 1e6, 1) AS gwp_m,
 # MAGIC   ROUND(c.gross_incurred / 1e6, 1) AS claims_incurred_m,
 # MAGIC   ROUND(e.total_expenses / 1e6, 1) AS expenses_m
-# MAGIC FROM premiums_by_lob p
-# MAGIC JOIN claims_by_lob c ON p.reporting_period = c.reporting_period AND p.lob_code = c.lob_code
-# MAGIC JOIN expenses_by_lob e ON p.reporting_period = e.reporting_period AND p.lob_code = e.lob_code
-# MAGIC WHERE p.reporting_period = (SELECT MAX(reporting_period) FROM premiums_by_lob)
+# MAGIC FROM 2_stg_premiums_by_lob p
+# MAGIC JOIN 2_stg_claims_by_lob c ON p.reporting_period = c.reporting_period AND p.lob_code = c.lob_code
+# MAGIC JOIN 2_stg_expenses_by_lob e ON p.reporting_period = e.reporting_period AND p.lob_code = e.lob_code
+# MAGIC WHERE p.reporting_period = (SELECT MAX(reporting_period) FROM 2_stg_premiums_by_lob)
 # MAGIC ORDER BY p.lob_code
 
 # COMMAND ----------
@@ -308,8 +308,8 @@ for t in sorted(tables):
 # MAGIC   expense_ratio_pct,
 # MAGIC   combined_ratio_pct,
 # MAGIC   ri_cession_rate_pct
-# MAGIC FROM s0501_summary
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s0501_summary)
+# MAGIC FROM 3_qrt_s0501_summary
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s0501_summary)
 # MAGIC ORDER BY lob_code
 
 # COMMAND ----------
@@ -325,7 +325,7 @@ for t in sorted(tables):
 # MAGIC   ROUND(SUM(gross_written_premium) / 1e6, 1) AS total_gwp_m,
 # MAGIC   ROUND(AVG(combined_ratio_pct), 1) AS avg_combined_ratio,
 # MAGIC   ROUND(AVG(loss_ratio_pct), 1) AS avg_loss_ratio
-# MAGIC FROM s0501_summary
+# MAGIC FROM 3_qrt_s0501_summary
 # MAGIC GROUP BY reporting_period
 # MAGIC ORDER BY reporting_period
 
@@ -352,8 +352,8 @@ for t in sorted(tables):
 # MAGIC   calibration_year,
 # MAGIC   ROUND(scr_result_eur / 1e6, 1) AS scr_eur_m,
 # MAGIC   description
-# MAGIC FROM model_registry_log
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM model_registry_log)
+# MAGIC FROM 5_mon_model_registry_log
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 5_mon_model_registry_log)
 # MAGIC ORDER BY model_version
 
 # COMMAND ----------
@@ -368,8 +368,8 @@ for t in sorted(tables):
 # MAGIC   template_row_id,
 # MAGIC   template_row_label,
 # MAGIC   ROUND(amount_eur / 1e6, 1) AS amount_eur_m
-# MAGIC FROM s2501_scr_breakdown
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s2501_scr_breakdown)
+# MAGIC FROM 3_qrt_s2501_scr_breakdown
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s2501_scr_breakdown)
 # MAGIC   AND template_row_id NOT LIKE '%.%'  -- main components only
 # MAGIC ORDER BY template_row_id
 
@@ -388,7 +388,7 @@ for t in sorted(tables):
 # MAGIC   solvency_ratio_pct,
 # MAGIC   ROUND(surplus_eur / 1e6, 1) AS surplus_m,
 # MAGIC   model_version
-# MAGIC FROM s2501_summary
+# MAGIC FROM 3_qrt_s2501_summary
 # MAGIC ORDER BY reporting_period
 
 # COMMAND ----------
@@ -413,8 +413,8 @@ for t in sorted(tables):
 # MAGIC   number_of_risks,
 # MAGIC   ROUND(total_sum_insured_eur / 1e6, 1) AS tsi_eur_m,
 # MAGIC   ROUND(aggregate_limit_eur / 1e6, 1) AS limit_eur_m
-# MAGIC FROM exposures
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM exposures)
+# MAGIC FROM 1_raw_exposures
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 1_raw_exposures)
 # MAGIC ORDER BY lob_name, peril
 # MAGIC LIMIT 15
 
@@ -437,7 +437,7 @@ for t in sorted(tables):
 # MAGIC   status,
 # MAGIC   input_path,
 # MAGIC   output_path
-# MAGIC FROM igloo_run_log
+# MAGIC FROM 4_eng_stochastic_run_log
 # MAGIC ORDER BY started_at DESC
 
 # COMMAND ----------
@@ -453,8 +453,8 @@ for t in sorted(tables):
 # MAGIC   ROUND(var_net_eur / 1e6, 1) AS var_net_eur_m,
 # MAGIC   ROUND(tvar_net_eur / 1e6, 1) AS tvar_net_eur_m,
 # MAGIC   perils_modelled
-# MAGIC FROM cat_risk_by_lob
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM cat_risk_by_lob)
+# MAGIC FROM 2_stg_cat_risk_by_lob
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 2_stg_cat_risk_by_lob)
 # MAGIC ORDER BY var_net_eur DESC
 
 # COMMAND ----------
@@ -472,7 +472,7 @@ for t in sorted(tables):
 # MAGIC   sigma_reserve,
 # MAGIC   ROUND(premium_risk_eur / 1e6, 1) AS prem_risk_m,
 # MAGIC   ROUND(reserve_risk_eur / 1e6, 1) AS res_risk_m
-# MAGIC FROM premium_reserve_risk
+# MAGIC FROM 2_stg_premium_reserve_risk
 # MAGIC ORDER BY lob_code
 
 # COMMAND ----------
@@ -487,8 +487,8 @@ for t in sorted(tables):
 # MAGIC   template_row_id,
 # MAGIC   template_row_label,
 # MAGIC   ROUND(amount_eur / 1e6, 1) AS amount_eur_m
-# MAGIC FROM s2606_nl_uw_risk
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s2606_nl_uw_risk)
+# MAGIC FROM 3_qrt_s2606_nl_uw_risk
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s2606_nl_uw_risk)
 # MAGIC ORDER BY template_row_id
 
 # COMMAND ----------
@@ -506,8 +506,8 @@ for t in sorted(tables):
 # MAGIC   'S.06.02 Total Assets' AS metric,
 # MAGIC   ROUND(SUM(CAST(C0170_Total_Solvency_II_Amount AS DOUBLE)) / 1e6, 1) AS value_eur_m,
 # MAGIC   reporting_period
-# MAGIC FROM s0602_list_of_assets
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s0602_list_of_assets)
+# MAGIC FROM 3_qrt_s0602_list_of_assets
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s0602_list_of_assets)
 # MAGIC GROUP BY reporting_period
 # MAGIC
 # MAGIC UNION ALL
@@ -516,9 +516,9 @@ for t in sorted(tables):
 # MAGIC   'S.05.01 Total GWP',
 # MAGIC   ROUND(SUM(CAST(amount_eur AS DOUBLE)) / 1e6, 1),
 # MAGIC   reporting_period
-# MAGIC FROM s0501_premiums_claims_expenses
+# MAGIC FROM 3_qrt_s0501_premiums_claims_expenses
 # MAGIC WHERE template_row_id = 'R0110' AND lob_code = 0
-# MAGIC   AND reporting_period = (SELECT MAX(reporting_period) FROM s0501_premiums_claims_expenses)
+# MAGIC   AND reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s0501_premiums_claims_expenses)
 # MAGIC GROUP BY reporting_period
 # MAGIC
 # MAGIC UNION ALL
@@ -527,8 +527,8 @@ for t in sorted(tables):
 # MAGIC   'S.25.01 SCR',
 # MAGIC   ROUND(scr_eur / 1e6, 1),
 # MAGIC   reporting_period
-# MAGIC FROM s2501_summary
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s2501_summary)
+# MAGIC FROM 3_qrt_s2501_summary
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s2501_summary)
 # MAGIC
 # MAGIC UNION ALL
 # MAGIC
@@ -536,8 +536,8 @@ for t in sorted(tables):
 # MAGIC   'S.25.01 Solvency Ratio %',
 # MAGIC   solvency_ratio_pct,
 # MAGIC   reporting_period
-# MAGIC FROM s2501_summary
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s2501_summary)
+# MAGIC FROM 3_qrt_s2501_summary
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s2501_summary)
 # MAGIC
 # MAGIC UNION ALL
 # MAGIC
@@ -545,8 +545,8 @@ for t in sorted(tables):
 # MAGIC   'S.26.06 NL UW SCR',
 # MAGIC   ROUND(total_nl_uw_scr / 1e6, 1),
 # MAGIC   reporting_period
-# MAGIC FROM s2606_summary
-# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM s2606_summary)
+# MAGIC FROM 3_qrt_s2606_summary
+# MAGIC WHERE reporting_period = (SELECT MAX(reporting_period) FROM 3_qrt_s2606_summary)
 
 # COMMAND ----------
 
@@ -561,13 +561,13 @@ for t in sorted(tables):
 # MAGIC The app handles:
 # MAGIC - Submit for review (creates pending approval record)
 # MAGIC - Approve with comments (exports CSV to Volume, generates PDF certificate)
-# MAGIC - Full audit trail in `qrt_approvals` table
+# MAGIC - Full audit trail in `6_ai_approvals` table
 
 # COMMAND ----------
 
 # MAGIC %sql
 # MAGIC -- Check if any approvals exist
-# MAGIC SELECT * FROM qrt_approvals ORDER BY submitted_at DESC
+# MAGIC SELECT * FROM 6_ai_approvals ORDER BY submitted_at DESC
 
 # COMMAND ----------
 
@@ -597,7 +597,7 @@ for t in sorted(tables):
 # MAGIC
 # MAGIC | What | Databricks Feature | Demo Point |
 # MAGIC |------|-------------------|------------|
-# MAGIC | Data arrives late | **Control Tower** — pipeline_sla_status table | SLA monitoring |
+# MAGIC | Data arrives late | **Control Tower** — 5_mon_pipeline_sla_status table | SLA monitoring |
 # MAGIC | Manual Excel transforms | **DLT Pipelines** — declarative SQL with expectations | Automated quality gates |
 # MAGIC | "Which model version?" | **MLflow + Unity Catalog** — Champion/Challenger aliases | Model governance |
 # MAGIC | Cross-QRT mismatch | **Single SQL query** — join across gold tables | Cross-QRT consistency |

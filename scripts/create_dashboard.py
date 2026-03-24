@@ -46,29 +46,29 @@ ds_kpi_latest = ds("ds_kpi_latest", "Latest KPIs",
            ROUND(scr_eur / 1e6, 1) AS scr_m,
            ROUND(eligible_own_funds_eur / 1e6, 1) AS eof_m,
            ROUND(surplus_eur / 1e6, 1) AS surplus_m
-    FROM {FQN}.s2501_summary
-    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.s2501_summary)""")
+    FROM {FQN}.3_qrt_s2501_summary
+    WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.3_qrt_s2501_summary)""")
 
 ds_solvency_trend = ds("ds_solvency_trend", "Solvency Ratio Trend",
     f"""SELECT reporting_period,
            solvency_ratio_pct,
            ROUND(scr_eur / 1e6, 1) AS scr_m,
            ROUND(eligible_own_funds_eur / 1e6, 1) AS eof_m
-    FROM {FQN}.s2501_summary ORDER BY reporting_period""")
+    FROM {FQN}.3_qrt_s2501_summary ORDER BY reporting_period""")
 
 ds_scr_vs_eof = ds("ds_scr_eof", "SCR vs EOF",
     f"""SELECT reporting_period, 'SCR' AS metric, ROUND(scr_eur / 1e6, 1) AS value_m
-    FROM {FQN}.s2501_summary
+    FROM {FQN}.3_qrt_s2501_summary
     UNION ALL
     SELECT reporting_period, 'Eligible Own Funds' AS metric, ROUND(eligible_own_funds_eur / 1e6, 1) AS value_m
-    FROM {FQN}.s2501_summary
+    FROM {FQN}.3_qrt_s2501_summary
     ORDER BY reporting_period, metric""")
 
 ds_balance = ds("ds_balance", "Balance Sheet",
     f"""SELECT reporting_period, item, category,
            ROUND(amount_eur / 1e6, 1) AS amount_m
-    FROM {FQN}.balance_sheet
-    WHERE category = 'assets'
+    FROM {FQN}.1_raw_balance_sheet
+    WHERE category = '1_raw_assets'
     ORDER BY reporting_period""")
 
 # S.06.02
@@ -77,7 +77,7 @@ ds_asset_alloc = ds("ds_asset_alloc", "Asset Allocation by Quarter",
            asset_count,
            ROUND(total_sii_amount / 1e6, 1) AS sii_m,
            pct_of_total_sii
-    FROM {FQN}.s0602_summary ORDER BY reporting_period, cic_category_name""")
+    FROM {FQN}.3_qrt_s0602_summary ORDER BY reporting_period, cic_category_name""")
 
 ds_asset_quality = ds("ds_asset_quality", "Asset Credit Quality",
     f"""SELECT reporting_period,
@@ -87,13 +87,13 @@ ds_asset_quality = ds("ds_asset_quality", "Asset Credit Quality",
                 ELSE 'Unrated' END AS quality_band,
            COUNT(*) AS asset_count,
            ROUND(SUM(sii_value) / 1e6, 1) AS sii_m
-    FROM {FQN}.assets_enriched
+    FROM {FQN}.2_stg_assets_enriched
     GROUP BY 1, 2 ORDER BY 1""")
 
 ds_asset_duration = ds("ds_asset_duration", "Duration Distribution",
     f"""SELECT reporting_period, asset_class,
            ROUND(AVG(modified_duration), 2) AS avg_duration
-    FROM {FQN}.assets_enriched
+    FROM {FQN}.2_stg_assets_enriched
     WHERE modified_duration IS NOT NULL
     GROUP BY 1, 2 ORDER BY 1""")
 
@@ -101,7 +101,7 @@ ds_asset_country = ds("ds_asset_country", "Assets by Issuer Country",
     f"""SELECT issuer_country,
            COUNT(*) AS asset_count,
            ROUND(SUM(sii_value) / 1e6, 1) AS sii_m
-    FROM {FQN}.assets_enriched
+    FROM {FQN}.2_stg_assets_enriched
     GROUP BY 1 ORDER BY sii_m DESC""")
 
 # S.05.01
@@ -111,12 +111,12 @@ ds_combined = ds("ds_combined", "Combined Ratios by LoB",
            ri_cession_rate_pct,
            ROUND(gross_written_premium / 1e6, 1) AS gwp_m,
            ROUND(net_earned_premium / 1e6, 1) AS nep_m
-    FROM {FQN}.s0501_summary ORDER BY reporting_period, lob_code""")
+    FROM {FQN}.3_qrt_s0501_summary ORDER BY reporting_period, lob_code""")
 
 ds_pnl_totals = ds("ds_pnl_totals", "P&L Totals by Quarter",
     f"""SELECT reporting_period, template_row_label,
            ROUND(amount_eur / 1e6, 1) AS amount_m
-    FROM {FQN}.s0501_premiums_claims_expenses
+    FROM {FQN}.3_qrt_s0501_premiums_claims_expenses
     WHERE lob_code = 0
       AND template_row_id IN ('R0110', 'R0200', 'R0310', 'R0400', 'R0550')
     ORDER BY reporting_period, template_row_id""")
@@ -124,7 +124,7 @@ ds_pnl_totals = ds("ds_pnl_totals", "P&L Totals by Quarter",
 ds_gwp_by_lob = ds("ds_gwp_by_lob", "GWP by LoB & Quarter",
     f"""SELECT reporting_period, lob_name,
            ROUND(amount_eur / 1e6, 1) AS gwp_m
-    FROM {FQN}.s0501_premiums_claims_expenses
+    FROM {FQN}.3_qrt_s0501_premiums_claims_expenses
     WHERE template_row_id = 'R0110' AND lob_code > 0
     ORDER BY reporting_period, lob_name""")
 
@@ -132,21 +132,21 @@ ds_gwp_by_lob = ds("ds_gwp_by_lob", "GWP by LoB & Quarter",
 ds_scr_modules = ds("ds_scr_modules", "SCR Risk Modules",
     f"""SELECT reporting_period, template_row_id, template_row_label,
            ROUND(amount_eur / 1e6, 1) AS amount_m
-    FROM {FQN}.s2501_scr_breakdown
+    FROM {FQN}.3_qrt_s2501_scr_breakdown
     WHERE template_row_id IN ('R0010','R0020','R0030','R0040','R0050','R0100','R0130','R0150','R0200')
     ORDER BY reporting_period, template_row_id""")
 
 ds_scr_market = ds("ds_scr_market", "Market Risk Sub-modules",
     f"""SELECT reporting_period, template_row_label,
            ROUND(amount_eur / 1e6, 1) AS amount_m
-    FROM {FQN}.s2501_scr_breakdown
+    FROM {FQN}.3_qrt_s2501_scr_breakdown
     WHERE template_row_id LIKE 'R0010.%'
     ORDER BY reporting_period, template_row_id""")
 
 ds_scr_nl = ds("ds_scr_nl", "Non-Life UW Sub-modules",
     f"""SELECT reporting_period, template_row_label,
            ROUND(amount_eur / 1e6, 1) AS amount_m
-    FROM {FQN}.s2501_scr_breakdown
+    FROM {FQN}.3_qrt_s2501_scr_breakdown
     WHERE template_row_id LIKE 'R0050.%'
     ORDER BY reporting_period, template_row_id""")
 
@@ -154,7 +154,7 @@ ds_own_funds = ds("ds_own_funds", "Own Funds by Tier",
     f"""SELECT reporting_period,
            CONCAT('Tier ', tier) AS tier_label,
            ROUND(SUM(amount_eur) / 1e6, 1) AS amount_m
-    FROM {FQN}.own_funds
+    FROM {FQN}.1_raw_own_funds
     GROUP BY reporting_period, tier
     ORDER BY reporting_period, tier""")
 
@@ -165,7 +165,7 @@ ds_solvency = ds("ds_solvency", "Solvency Summary Table",
            ROUND(bscr_eur / 1e6, 1) AS bscr_m,
            ROUND(eligible_own_funds_eur / 1e6, 1) AS eof_m,
            ROUND(surplus_eur / 1e6, 1) AS surplus_m
-    FROM {FQN}.s2501_summary ORDER BY reporting_period""")
+    FROM {FQN}.3_qrt_s2501_summary ORDER BY reporting_period""")
 
 
 # ── Widget builders ───────────────────────────────────────────────────
@@ -512,16 +512,16 @@ s2501_layout = [
 # ── Page 5: Pipeline & DQ ─────────────────────────────────────────────
 
 ds_sla = ds("ds_sla", "SLA Status",
-    f"""SELECT feed_name, source_system, status, dq_pass_rate, row_count, notes FROM {FQN}.pipeline_sla_status WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.pipeline_sla_status) ORDER BY feed_name""")
+    f"""SELECT feed_name, source_system, status, dq_pass_rate, row_count, notes FROM {FQN}.5_mon_pipeline_sla_status WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.5_mon_pipeline_sla_status) ORDER BY feed_name""")
 
 ds_dq_trend = ds("ds_dq_trend", "DQ Pass Rate Trend",
-    f"""SELECT reporting_period, ROUND(SUM(passing_records) * 100.0 / SUM(total_records), 1) AS pass_rate, SUM(failing_records) AS quarantined FROM {FQN}.dq_expectation_results GROUP BY reporting_period ORDER BY reporting_period""")
+    f"""SELECT reporting_period, ROUND(SUM(passing_records) * 100.0 / SUM(total_records), 1) AS pass_rate, SUM(failing_records) AS quarantined FROM {FQN}.5_mon_dq_expectation_results GROUP BY reporting_period ORDER BY reporting_period""")
 
 ds_dq_by_pipeline = ds("ds_dq_pipeline", "DQ by Pipeline",
-    f"""SELECT pipeline_name, SUM(total_records) AS total_records, SUM(failing_records) AS failing, ROUND(SUM(passing_records) * 100.0 / SUM(total_records), 1) AS pass_rate FROM {FQN}.dq_expectation_results WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.dq_expectation_results) GROUP BY pipeline_name ORDER BY pipeline_name""")
+    f"""SELECT pipeline_name, SUM(total_records) AS total_records, SUM(failing_records) AS failing, ROUND(SUM(passing_records) * 100.0 / SUM(total_records), 1) AS pass_rate FROM {FQN}.5_mon_dq_expectation_results WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.5_mon_dq_expectation_results) GROUP BY pipeline_name ORDER BY pipeline_name""")
 
 ds_recon = ds("ds_recon", "Reconciliation Checks",
-    f"""SELECT check_name, source_qrt, target_qrt, status, ROUND(source_value / 1e6, 1) AS source_m, ROUND(target_value / 1e6, 1) AS target_m, ROUND(difference / 1e6, 1) AS diff_m FROM {FQN}.cross_qrt_reconciliation WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.cross_qrt_reconciliation) ORDER BY check_name""")
+    f"""SELECT check_name, source_qrt, target_qrt, status, ROUND(source_value / 1e6, 1) AS source_m, ROUND(target_value / 1e6, 1) AS target_m, ROUND(difference / 1e6, 1) AS diff_m FROM {FQN}.5_mon_cross_qrt_reconciliation WHERE reporting_period = (SELECT MAX(reporting_period) FROM {FQN}.5_mon_cross_qrt_reconciliation) ORDER BY check_name""")
 
 pipeline_dq_layout = [
     lay(md_widget("# Pipeline & Data Quality\nFeed arrival status, DLT expectation results, and cross-QRT reconciliation."),

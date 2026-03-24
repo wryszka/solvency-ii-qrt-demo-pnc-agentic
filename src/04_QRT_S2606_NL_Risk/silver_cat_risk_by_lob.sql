@@ -6,17 +6,17 @@
 -- MAGIC Uses the **1-in-200 return period** (VaR 99.5%) as required by Solvency II.
 -- MAGIC
 -- MAGIC **Source:** `igloo_run_results` (stochastic engine output)
--- MAGIC **Target:** `cat_risk_by_lob`
+-- MAGIC **Target:** `2_stg_cat_risk_by_lob`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW cat_risk_by_lob(
-  -- Catastrophe risk must be positive (net of reinsurance)
+CREATE OR REFRESH MATERIALIZED VIEW `2_stg_cat_risk_by_lob`(
+  -- Catastrophe risk must be positive (net of 1_raw_reinsurance)
   CONSTRAINT var_net_positive       EXPECT (var_net_eur > 0)           ON VIOLATION DROP ROW,
   -- TVaR should be >= VaR (tail is heavier than the point estimate)
   CONSTRAINT tvar_gte_var           EXPECT (tvar_net_eur >= var_net_eur) ON VIOLATION DROP ROW
 )
-COMMENT 'Catastrophe risk by LoB — 1-in-200 VaR from Igloo stochastic model, net of reinsurance'
+COMMENT 'Catastrophe risk by LoB — 1-in-200 VaR from Igloo stochastic model, net of 1_raw_reinsurance'
 AS
 SELECT
     reporting_period,

@@ -22,8 +22,8 @@ volumes:
 
 # Target financial metrics (EUR millions)
 targets:
-  total_assets_sii: 6500       # Total SII value of assets
-  total_gwp: 2000              # Gross written premiums
+  total_assets_sii: 6500       # Total SII value of 1_raw_assets
+  total_gwp: 2000              # Gross written 1_raw_premiums
   combined_ratio: 0.96         # Target combined ratio
   scr_total: 1150              # Final SCR
   bscr: 1350                   # Basic SCR before op risk and LAC

@@ -41,6 +41,23 @@
 # MAGIC ```
 # MAGIC
 # MAGIC **Key principle:** The AI agent is an *advisor*, never a *decision-maker*.
+# MAGIC
+# MAGIC ### Schema Organisation (`solvency2demo_agentic`)
+# MAGIC
+# MAGIC All tables use numbered layer prefixes so they sort in pipeline order:
+# MAGIC
+# MAGIC ```
+# MAGIC 1_raw_*            Bronze: 13 source feed tables (assets, claims, premiums, etc.)
+# MAGIC 2_stg_*            Silver: 7 cleansed/aggregated tables (DLT materialized views)
+# MAGIC 3_qrt_*            Gold: 8 EIOPA template tables (the actual QRT output)
+# MAGIC 4_eng_*            Stochastic engine: 2 tables (results + run log)
+# MAGIC 5_mon_*            Monitoring: 4 tables (SLA, DQ, reconciliation, model versions)
+# MAGIC 6_ai_*             AI agent outputs: 2 tables (reviews + approvals)
+# MAGIC 7_ref_*            Reference data: 1 table (SCR correlation matrix)
+# MAGIC ```
+# MAGIC
+# MAGIC **The AI agents only read `3_qrt_*` and `5_mon_*` tables (summaries).
+# MAGIC They never access `1_raw_*` (individual policyholder/claims records).**
 
 # COMMAND ----------
 
@@ -53,10 +70,10 @@
 
 # DBTITLE 1,S.25.01 SCR Summary — what the Actuarial Review Agent reads
 catalog = "lr_serverless_aws_us_catalog"
-schema = "solvency2demo"
+schema = "solvency2demo_agentic"
 
 display(spark.sql(f"""
-    SELECT * FROM {catalog}.{schema}.s2501_summary
+    SELECT * FROM {catalog}.{schema}.3_qrt_s2501_summary
     ORDER BY reporting_period DESC
     LIMIT 2
 """))
@@ -65,7 +82,7 @@ display(spark.sql(f"""
 
 # DBTITLE 1,S.05.01 P&L Summary — where the large loss and cession change are hiding
 display(spark.sql(f"""
-    SELECT * FROM {catalog}.{schema}.s0501_summary
+    SELECT * FROM {catalog}.{schema}.3_qrt_s0501_summary
     ORDER BY reporting_period DESC
 """))
 
@@ -112,7 +129,7 @@ for ep in ["databricks-claude-sonnet-4", "databricks-claude-3-7-sonnet", "databr
 # COMMAND ----------
 
 # DBTITLE 1,Generate Review for S.05.01 — watch it find the large loss
-summary = spark.sql(f"SELECT * FROM {catalog}.{schema}.s0501_summary ORDER BY reporting_period DESC LIMIT 2").toPandas()
+summary = spark.sql(f"SELECT * FROM {catalog}.{schema}.3_qrt_s0501_summary ORDER BY reporting_period DESC LIMIT 2").toPandas()
 current = summary.iloc[0].to_dict() if len(summary) > 0 else {}
 prior = summary.iloc[1].to_dict() if len(summary) > 1 else {}
 
@@ -168,7 +185,7 @@ print(review_text)
 # MAGIC | **Model Access** | Serving endpoint ACL — only app SP can call the LLM |
 # MAGIC | **Input** | 50K char cap, 10/hr rate limit, summary-only data scope |
 # MAGIC | **Output** | Forbidden patterns (can't approve), required sections, PII scan, truncation |
-# MAGIC | **Audit** | Every call logged to `qrt_ai_reviews` with model, tokens, user, timestamp |
+# MAGIC | **Audit** | Every call logged to `6_ai_reviews` with model, tokens, user, timestamp |
 # MAGIC | **Human-in-the-Loop** | AI produces review, never decision |
 
 # COMMAND ----------
@@ -246,7 +263,7 @@ for pattern, reason in forbidden:
 display(spark.sql(f"""
     SELECT review_id, qrt_id, reporting_period, model_used,
            input_tokens, output_tokens, created_at, created_by
-    FROM {catalog}.{schema}.qrt_ai_reviews
+    FROM {catalog}.{schema}.6_ai_reviews
     ORDER BY created_at DESC
     LIMIT 10
 """))

@@ -5,12 +5,12 @@
 -- MAGIC Aggregates raw **premiums** transactions to quarterly totals per LoB.
 -- MAGIC Gross, reinsurers' share, and net — reconciled automatically.
 -- MAGIC
--- MAGIC **Source:** `premiums`
--- MAGIC **Target:** `premiums_by_lob`
+-- MAGIC **Source:** `1_raw_premiums`
+-- MAGIC **Target:** `2_stg_premiums_by_lob`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW premiums_by_lob(
+CREATE OR REFRESH MATERIALIZED VIEW `2_stg_premiums_by_lob`(
   CONSTRAINT gross_written_positive    EXPECT (gross_written_premium > 0)          ON VIOLATION DROP ROW,
   CONSTRAINT net_equals_gross_minus_ri EXPECT (ABS(net_written_premium - (gross_written_premium - reinsurers_share_written)) < 1.0)
 )
@@ -27,5 +27,5 @@ SELECT
     SUM(net_written_premium)        AS net_written_premium,
     SUM(net_earned_premium)         AS net_earned_premium,
     COUNT(*)                        AS transaction_count
-FROM LIVE.premiums
+FROM LIVE.`1_raw_premiums`
 GROUP BY reporting_period, lob_code, lob_name

@@ -27,7 +27,7 @@ def get_catalog() -> str:
 
 
 def get_schema() -> str:
-    return os.getenv("SCHEMA_NAME", "solvency2demo")
+    return os.getenv("SCHEMA_NAME", "solvency2demo_agentic")
 
 
 def get_warehouse_id() -> str:
@@ -35,7 +35,8 @@ def get_warehouse_id() -> str:
 
 
 def fqn(table: str) -> str:
-    return f"{get_catalog()}.{get_schema()}.{table}"
+    """Fully qualified table name with backtick quoting for numbered prefixes."""
+    return f"`{get_catalog()}`.`{get_schema()}`.`{table}`"
 
 
 def get_dashboard_id() -> str:

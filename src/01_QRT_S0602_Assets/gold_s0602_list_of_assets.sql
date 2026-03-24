@@ -8,12 +8,12 @@
 -- MAGIC This is a **column rename** — no business logic, just mapping to regulatory format.
 -- MAGIC An actuary can verify each mapping against the EIOPA Log.
 -- MAGIC
--- MAGIC **Source:** `assets_enriched`
--- MAGIC **Target:** `s0602_list_of_assets`
+-- MAGIC **Source:** `2_stg_assets_enriched`
+-- MAGIC **Target:** `3_qrt_s0602_list_of_assets`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW s0602_list_of_assets(
+CREATE OR REFRESH MATERIALIZED VIEW `3_qrt_s0602_list_of_assets`(
   -- S.06.02 completeness checks
   CONSTRAINT c0040_asset_id_present  EXPECT (C0040_Asset_ID IS NOT NULL)            ON VIOLATION DROP ROW,
   CONSTRAINT c0170_sii_positive      EXPECT (C0170_Total_Solvency_II_Amount > 0)    ON VIOLATION FAIL UPDATE,
@@ -80,4 +80,4 @@ SELECT
     END                                 AS C0360_Unit_Percentage_of_Par,
     maturity_date                       AS C0370_Maturity_Date
 
-FROM LIVE.assets_enriched
+FROM LIVE.`2_stg_assets_enriched`

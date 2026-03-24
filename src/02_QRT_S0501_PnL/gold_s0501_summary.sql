@@ -6,17 +6,17 @@
 -- MAGIC Shows key P&L ratios by Line of Business for each reporting period.
 -- MAGIC
 -- MAGIC This is what the actuary checks before approving the QRT:
--- MAGIC - Loss ratio = Net claims incurred / Net earned premium
--- MAGIC - Expense ratio = Total expenses / Net earned premium
+-- MAGIC - Loss ratio = Net 1_raw_claims incurred / Net earned premium
+-- MAGIC - Expense ratio = Total 1_raw_expenses / Net earned premium
 -- MAGIC - Combined ratio = Loss ratio + Expense ratio (should be < 100% for profit)
 -- MAGIC - Net vs Gross reconciliation per LoB
 -- MAGIC
--- MAGIC **Source:** `s0501_premiums_claims_expenses`
--- MAGIC **Target:** `s0501_summary` (validation view)
+-- MAGIC **Source:** `3_qrt_s0501_premiums_claims_expenses`
+-- MAGIC **Target:** `3_qrt_s0501_summary` (validation view)
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW s0501_summary(
+CREATE OR REFRESH MATERIALIZED VIEW `3_qrt_s0501_summary`(
   CONSTRAINT combined_ratio_realistic EXPECT (combined_ratio_pct BETWEEN 50 AND 200) ON VIOLATION DROP ROW
 )
 COMMENT 'S.05.01 validation summary — key P&L ratios by LoB for actuarial review and sign-off'
@@ -40,7 +40,7 @@ WITH pivoted AS (
     -- Expenses
     MAX(CASE WHEN template_row_id = 'R0550' THEN amount_eur END) AS total_expenses
 
-  FROM LIVE.s0501_premiums_claims_expenses
+  FROM LIVE.`3_qrt_s0501_premiums_claims_expenses`
   WHERE lob_code != 0  -- exclude Total rows for per-LoB analysis
   GROUP BY reporting_period, lob_code, lob_name
 )

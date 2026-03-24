@@ -6,12 +6,12 @@
 -- MAGIC reserve risk, catastrophe risk, diversification benefit, and total
 -- MAGIC NL underwriting risk.
 -- MAGIC
--- MAGIC **Source:** `s2606_nl_uw_risk`
--- MAGIC **Target:** `s2606_summary`
+-- MAGIC **Source:** `3_qrt_s2606_nl_uw_risk`
+-- MAGIC **Target:** `3_qrt_s2606_summary`
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW s2606_summary(
+CREATE OR REFRESH MATERIALIZED VIEW `3_qrt_s2606_summary`(
   CONSTRAINT total_nl_uw_positive EXPECT (total_nl_uw_scr > 0) ON VIOLATION FAIL UPDATE
 )
 COMMENT 'S.26.06 summary — NL UW risk breakdown for actuarial review and sign-off'
@@ -37,5 +37,5 @@ SELECT
           NULLIF(MAX(CASE WHEN template_row_id = 'R0100' THEN amount_eur END), 0), 1)
         AS premium_pct_of_total
 
-FROM LIVE.s2606_nl_uw_risk
+FROM LIVE.`3_qrt_s2606_nl_uw_risk`
 GROUP BY reporting_period

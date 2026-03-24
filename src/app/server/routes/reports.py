@@ -32,47 +32,47 @@ QRT_DEFS = {
         "id": "s0602",
         "name": "S.06.02",
         "title": "List of Assets",
-        "table": "s0602_list_of_assets",
-        "summary_table": "s0602_summary",
+        "table": "3_qrt_s0602_list_of_assets",
+        "summary_table": "3_qrt_s0602_summary",
         "pipeline": "S.06.02 List of Assets",
         "lineage": [
-            {"step": 1, "phase": "Ingestion", "source": "Investment Platform (Simcorp)", "target": "assets",
+            {"step": 1, "phase": "Ingestion", "source": "Investment Platform (Simcorp)", "target": "1_raw_assets",
              "layer": "Bronze", "description": "5,000 investment positions ingested from custodian feeds",
              "row_count_hint": "~5,000 positions per quarter",
              "sql_snippet": None, "expectations": []},
-            {"step": 2, "phase": "Transformation", "source": "assets", "target": "assets_enriched",
+            {"step": 2, "phase": "Transformation", "source": "1_raw_assets", "target": "2_stg_assets_enriched",
              "layer": "Silver",
              "description": "Enrich raw investment register with CIC code decomposition (country + category), Solvency II valuation method (mark-to-market vs mark-to-model), and credit quality step mapping from external ratings",
              "row_count_hint": "5,000 -> ~4,996 (after DQ drops)",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW assets_enriched AS\nSELECT\n  asset_id, asset_name, asset_class,\n  cic_code,\n  SUBSTRING(cic_code, 1, 2) AS cic_country,\n  SUBSTRING(cic_code, 3, 1) AS cic_category,\n  CASE SUBSTRING(cic_code, 3, 1)\n    WHEN '1' THEN 'Government bonds'\n    WHEN '2' THEN 'Corporate bonds'\n    WHEN '3' THEN 'Equity'\n    WHEN '4' THEN 'Collective investment undertakings'\n    WHEN '9' THEN 'Property'\n    ELSE 'Other'\n  END AS cic_category_name,\n  -- SII valuation\n  sii_value,\n  CASE WHEN is_listed THEN 'Mark-to-market'\n       ELSE 'Mark-to-model' END AS valuation_method,\n  credit_rating, credit_quality_step,\n  modified_duration\nFROM LIVE.assets",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 2_stg_assets_enriched AS\nSELECT\n  asset_id, asset_name, asset_class,\n  cic_code,\n  SUBSTRING(cic_code, 1, 2) AS cic_country,\n  SUBSTRING(cic_code, 3, 1) AS cic_category,\n  CASE SUBSTRING(cic_code, 3, 1)\n    WHEN '1' THEN 'Government bonds'\n    WHEN '2' THEN 'Corporate bonds'\n    WHEN '3' THEN 'Equity'\n    WHEN '4' THEN 'Collective investment undertakings'\n    WHEN '9' THEN 'Property'\n    ELSE 'Other'\n  END AS cic_category_name,\n  -- SII valuation\n  sii_value,\n  CASE WHEN is_listed THEN 'Mark-to-market'\n       ELSE 'Mark-to-model' END AS valuation_method,\n  credit_rating, credit_quality_step,\n  modified_duration\nFROM LIVE.1_raw_assets",
              "expectations": [
                  {"name": "asset_id_not_null", "rule": "asset_id IS NOT NULL", "action": "DROP ROW"},
                  {"name": "sii_value_positive", "rule": "sii_value > 0", "action": "FAIL UPDATE"},
                  {"name": "cic_code_valid", "rule": "LENGTH(cic_code) = 4", "action": "DROP ROW"},
                  {"name": "currency_not_null", "rule": "currency IS NOT NULL", "action": "DROP ROW"},
              ]},
-            {"step": 3, "phase": "Confirmation", "source": "assets_enriched", "target": "s0602_list_of_assets",
+            {"step": 3, "phase": "Confirmation", "source": "2_stg_assets_enriched", "target": "3_qrt_s0602_list_of_assets",
              "layer": "Gold",
-             "description": "Map enriched assets to EIOPA S.06.02 template. Each column corresponds to an EIOPA cell reference (C0040-C0370). This is a column rename -- no business logic, just regulatory format mapping",
+             "description": "Map enriched 1_raw_assets to EIOPA S.06.02 template. Each column corresponds to an EIOPA cell reference (C0040-C0370). This is a column rename -- no business logic, just regulatory format mapping",
              "row_count_hint": "1:1 mapping (one row per asset)",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW s0602_list_of_assets AS\nSELECT\n  asset_id           AS C0040_Asset_ID,\n  portfolio_type     AS C0060_Portfolio,\n  custodian_name     AS C0120_Custodian,\n  par_value          AS C0130_Quantity,\n  sii_value          AS C0170_Total_Solvency_II_Amount,\n  asset_name         AS C0190_Item_Title,\n  issuer_name        AS C0200_Issuer_Name,\n  issuer_lei         AS C0210_Issuer_Code,\n  cic_code           AS C0270_CIC,\n  credit_rating      AS C0290_External_Rating,\n  credit_quality_step AS C0310_Credit_Quality_Step,\n  modified_duration  AS C0340_Duration,\n  maturity_date      AS C0370_Maturity_Date\nFROM LIVE.assets_enriched",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 3_qrt_s0602_list_of_assets AS\nSELECT\n  asset_id           AS C0040_Asset_ID,\n  portfolio_type     AS C0060_Portfolio,\n  custodian_name     AS C0120_Custodian,\n  par_value          AS C0130_Quantity,\n  sii_value          AS C0170_Total_Solvency_II_Amount,\n  asset_name         AS C0190_Item_Title,\n  issuer_name        AS C0200_Issuer_Name,\n  issuer_lei         AS C0210_Issuer_Code,\n  cic_code           AS C0270_CIC,\n  credit_rating      AS C0290_External_Rating,\n  credit_quality_step AS C0310_Credit_Quality_Step,\n  modified_duration  AS C0340_Duration,\n  maturity_date      AS C0370_Maturity_Date\nFROM LIVE.2_stg_assets_enriched",
              "expectations": [
                  {"name": "c0040_asset_id_present", "rule": "C0040_Asset_ID IS NOT NULL", "action": "DROP ROW"},
                  {"name": "c0170_sii_positive", "rule": "C0170_Total_Solvency_II_Amount > 0", "action": "FAIL UPDATE"},
                  {"name": "c0270_cic_present", "rule": "C0270_CIC IS NOT NULL", "action": "DROP ROW"},
              ]},
-            {"step": 4, "phase": "Confirmation", "source": "s0602_list_of_assets", "target": "s0602_summary",
+            {"step": 4, "phase": "Confirmation", "source": "3_qrt_s0602_list_of_assets", "target": "3_qrt_s0602_summary",
              "layer": "Gold",
              "description": "Aggregate S.06.02 output by CIC category for actuarial review. Shows totals, percentages, and quality indicators that the actuary checks before sign-off",
              "row_count_hint": "~5 categories (Gov bonds, Corp bonds, Equity, CIU, Property)",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW s0602_summary AS\nSELECT\n  cic_category_name,\n  COUNT(*) AS asset_count,\n  SUM(C0170_Total_Solvency_II_Amount) AS total_sii_amount,\n  ROUND(SUM(C0170) * 100.0 /\n    SUM(SUM(C0170)) OVER (), 2) AS pct_of_total_sii,\n  COUNT(CASE WHEN C0310 <= 2 THEN 1 END)\n    AS investment_grade_count,\n  AVG(C0340_Duration) AS avg_duration\nFROM LIVE.s0602_list_of_assets\nGROUP BY cic_category_name",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 3_qrt_s0602_summary AS\nSELECT\n  cic_category_name,\n  COUNT(*) AS asset_count,\n  SUM(C0170_Total_Solvency_II_Amount) AS total_sii_amount,\n  ROUND(SUM(C0170) * 100.0 /\n    SUM(SUM(C0170)) OVER (), 2) AS pct_of_total_sii,\n  COUNT(CASE WHEN C0310 <= 2 THEN 1 END)\n    AS investment_grade_count,\n  AVG(C0340_Duration) AS avg_duration\nFROM LIVE.s0602_list_of_assets\nGROUP BY cic_category_name",
              "expectations": [
                  {"name": "total_sii_positive", "rule": "total_sii_amount > 0", "action": "FAIL UPDATE"},
              ]},
-            {"step": 5, "phase": "Export", "source": "s0602_summary", "target": "EIOPA S.06.02 Template",
+            {"step": 5, "phase": "Export", "source": "3_qrt_s0602_summary", "target": "EIOPA S.06.02 Template",
              "layer": "Export",
              "description": "Final QRT ready for actuarial sign-off and regulatory submission. Exported as CSV (Tagetik format) and PDF (EIOPA template layout)",
-             "row_count_hint": "5,000 assets + summary",
+             "row_count_hint": "5,000 1_raw_assets + summary",
              "sql_snippet": None, "expectations": []},
         ],
     },
@@ -80,67 +80,67 @@ QRT_DEFS = {
         "id": "s0501",
         "name": "S.05.01",
         "title": "Premiums, Claims & Expenses",
-        "table": "s0501_premiums_claims_expenses",
-        "summary_table": "s0501_summary",
+        "table": "3_qrt_s0501_premiums_claims_expenses",
+        "summary_table": "3_qrt_s0501_summary",
         "pipeline": "S.05.01 Premiums, Claims & Expenses",
         "lineage": [
             # --- Ingestion phase ---
-            {"step": 1, "phase": "Ingestion", "source": "Policy Admin (Guidewire)", "target": "premiums",
+            {"step": 1, "phase": "Ingestion", "source": "Policy Admin (Guidewire)", "target": "1_raw_premiums",
              "layer": "Bronze", "description": "~20,000 premium transactions per quarter from the policy administration system. Each transaction has gross written, gross earned, reinsurers' share, and net amounts by line of business",
              "row_count_hint": "~20K transactions/quarter",
              "sql_snippet": None, "expectations": []},
-            {"step": 2, "phase": "Ingestion", "source": "Claims Management System", "target": "claims",
+            {"step": 2, "phase": "Ingestion", "source": "Claims Management System", "target": "1_raw_claims",
              "layer": "Bronze", "description": "~15,000 claim events per quarter. Each claim has loss date, cause, gross/net paid, incurred, and reserved amounts with open/settled status",
              "row_count_hint": "~15K events/quarter",
              "sql_snippet": None, "expectations": []},
-            {"step": 3, "phase": "Ingestion", "source": "Finance / ERP (SAP)", "target": "expenses",
-             "layer": "Bronze", "description": "Expense allocations by line of business from the finance system. 6 expense categories: acquisition, administrative, claims management, overhead, investment management, other",
+            {"step": 3, "phase": "Ingestion", "source": "Finance / ERP (SAP)", "target": "1_raw_expenses",
+             "layer": "Bronze", "description": "Expense allocations by line of business from the finance system. 6 expense categories: acquisition, administrative, 1_raw_claims management, overhead, investment management, other",
              "row_count_hint": "7 LoB rows/quarter",
              "sql_snippet": None, "expectations": []},
             # --- Transformation phase ---
-            {"step": 4, "phase": "Transformation", "source": "premiums", "target": "premiums_by_lob",
+            {"step": 4, "phase": "Transformation", "source": "1_raw_premiums", "target": "2_stg_premiums_by_lob",
              "layer": "Silver",
              "description": "Aggregate raw premium transactions to quarterly totals per line of business. Reconcile: net written = gross written - reinsurers' share (tolerance EUR 1.00)",
              "row_count_hint": "~20K txns -> 7 LoB rows",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW premiums_by_lob AS\nSELECT\n  reporting_period, lob_code, lob_name,\n  SUM(gross_written_premium)    AS gross_written_premium,\n  SUM(gross_earned_premium)     AS gross_earned_premium,\n  SUM(reinsurers_share_written) AS reinsurers_share_written,\n  SUM(reinsurers_share_earned)  AS reinsurers_share_earned,\n  SUM(net_written_premium)      AS net_written_premium,\n  SUM(net_earned_premium)       AS net_earned_premium,\n  COUNT(*)                      AS transaction_count\nFROM LIVE.premiums\nGROUP BY reporting_period, lob_code, lob_name",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 2_stg_premiums_by_lob AS\nSELECT\n  reporting_period, lob_code, lob_name,\n  SUM(gross_written_premium)    AS gross_written_premium,\n  SUM(gross_earned_premium)     AS gross_earned_premium,\n  SUM(reinsurers_share_written) AS reinsurers_share_written,\n  SUM(reinsurers_share_earned)  AS reinsurers_share_earned,\n  SUM(net_written_premium)      AS net_written_premium,\n  SUM(net_earned_premium)       AS net_earned_premium,\n  COUNT(*)                      AS transaction_count\nFROM LIVE.premiums\nGROUP BY reporting_period, lob_code, lob_name",
              "expectations": [
                  {"name": "gross_written_positive", "rule": "gross_written_premium > 0", "action": "DROP ROW"},
                  {"name": "net_equals_gross_minus_ri", "rule": "ABS(net_written - (gross_written - ri_share)) < 1.0", "action": "WARN"},
              ]},
-            {"step": 5, "phase": "Transformation", "source": "claims", "target": "claims_by_lob",
+            {"step": 5, "phase": "Transformation", "source": "1_raw_claims", "target": "2_stg_claims_by_lob",
              "layer": "Silver",
              "description": "Aggregate raw claim events to quarterly totals per LoB. Validate that net incurred never exceeds gross incurred (after rounding tolerance)",
              "row_count_hint": "~15K events -> 7 LoB rows",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW claims_by_lob AS\nSELECT\n  reporting_period, lob_code, lob_name,\n  SUM(gross_incurred)            AS gross_incurred,\n  SUM(gross_paid)                AS gross_paid,\n  SUM(gross_reserved)            AS gross_reserved,\n  SUM(reinsurers_share_incurred) AS reinsurers_share_incurred,\n  SUM(net_incurred)              AS net_incurred,\n  SUM(net_paid)                  AS net_paid,\n  COUNT(*)                       AS claim_count,\n  COUNT(CASE WHEN status = 'open' THEN 1 END) AS open_claims\nFROM LIVE.claims\nGROUP BY reporting_period, lob_code, lob_name",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 2_stg_claims_by_lob AS\nSELECT\n  reporting_period, lob_code, lob_name,\n  SUM(gross_incurred)            AS gross_incurred,\n  SUM(gross_paid)                AS gross_paid,\n  SUM(gross_reserved)            AS gross_reserved,\n  SUM(reinsurers_share_incurred) AS reinsurers_share_incurred,\n  SUM(net_incurred)              AS net_incurred,\n  SUM(net_paid)                  AS net_paid,\n  COUNT(*)                       AS claim_count,\n  COUNT(CASE WHEN status = 'open' THEN 1 END) AS open_claims\nFROM LIVE.claims\nGROUP BY reporting_period, lob_code, lob_name",
              "expectations": [
                  {"name": "gross_incurred_positive", "rule": "gross_incurred > 0", "action": "DROP ROW"},
                  {"name": "net_leq_gross", "rule": "net_incurred <= gross_incurred + 1.0", "action": "WARN"},
              ]},
-            {"step": 6, "phase": "Transformation", "source": "expenses", "target": "expenses_by_lob",
+            {"step": 6, "phase": "Transformation", "source": "1_raw_expenses", "target": "2_stg_expenses_by_lob",
              "layer": "Silver",
              "description": "Validate expense allocations: the sum of 6 expense components must equal the total (tolerance EUR 1.00). This catches allocation errors from the finance system",
              "row_count_hint": "7 LoB rows (pass-through with validation)",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW expenses_by_lob AS\nSELECT\n  reporting_period, lob_code, lob_name,\n  acquisition_expenses,\n  administrative_expenses,\n  claims_management_expenses,\n  overhead_expenses,\n  investment_management_expenses,\n  other_expenses,\n  total_expenses\nFROM LIVE.expenses",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 2_stg_expenses_by_lob AS\nSELECT\n  reporting_period, lob_code, lob_name,\n  acquisition_expenses,\n  administrative_expenses,\n  claims_management_expenses,\n  overhead_expenses,\n  investment_management_expenses,\n  other_expenses,\n  total_expenses\nFROM LIVE.1_raw_expenses",
              "expectations": [
                  {"name": "total_expenses_positive", "rule": "total_expenses > 0", "action": "DROP ROW"},
                  {"name": "components_sum_to_total", "rule": "ABS(total - (acq + admin + claims_mgmt + overhead + inv_mgmt + other)) < 1.0", "action": "WARN"},
              ]},
             # --- Confirmation phase ---
-            {"step": 7, "phase": "Confirmation", "source": "premiums_by_lob + claims_by_lob + expenses_by_lob",
-             "target": "s0501_premiums_claims_expenses", "layer": "Gold",
-             "description": "Merge 3 silver tables into EIOPA S.05.01 template format. 26 UNION ALL statements map to template rows R0110-R1200: premiums written/earned (gross/RI/net), claims incurred/paid, and 6 expense categories. Each row has a template_row_id matching the EIOPA log",
+            {"step": 7, "phase": "Confirmation", "source": "2_stg_premiums_by_lob + 2_stg_claims_by_lob + 2_stg_expenses_by_lob",
+             "target": "3_qrt_s0501_premiums_claims_expenses", "layer": "Gold",
+             "description": "Merge 3 silver tables into EIOPA S.05.01 template format. 26 UNION ALL statements map to template rows R0110-R1200: 1_raw_premiums written/earned (gross/RI/net), 1_raw_claims incurred/paid, and 6 expense categories. Each row has a template_row_id matching the EIOPA log",
              "row_count_hint": "3 x 7 LoB -> 144 template rows (18 row types x 8 LoB incl. Total)",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW\n  s0501_premiums_claims_expenses AS\n\n-- R0110: Premiums written - Gross\nSELECT reporting_period, 'R0110' AS template_row_id,\n  'Premiums written - Gross' AS template_row_label,\n  lob_code, lob_name,\n  gross_written_premium AS amount_eur\nFROM LIVE.premiums_by_lob\n\nUNION ALL\n-- R0200: Premiums written - Net\nSELECT ..., 'R0200', 'Premiums written - Net',\n  net_written_premium\nFROM LIVE.premiums_by_lob\n\nUNION ALL\n-- R0310: Claims incurred - Gross\nSELECT ..., 'R0310', 'Claims incurred - Gross',\n  gross_incurred\nFROM LIVE.claims_by_lob\n\nUNION ALL\n-- R0550: Expenses incurred\nSELECT ..., 'R0550', 'Expenses incurred',\n  total_expenses\nFROM LIVE.expenses_by_lob\n-- ... 26 UNION ALL total",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW\n  3_qrt_s0501_premiums_claims_expenses AS\n\n-- R0110: Premiums written - Gross\nSELECT reporting_period, 'R0110' AS template_row_id,\n  'Premiums written - Gross' AS template_row_label,\n  lob_code, lob_name,\n  gross_written_premium AS amount_eur\nFROM LIVE.premiums_by_lob\n\nUNION ALL\n-- R0200: Premiums written - Net\nSELECT ..., 'R0200', 'Premiums written - Net',\n  net_written_premium\nFROM LIVE.premiums_by_lob\n\nUNION ALL\n-- R0310: Claims incurred - Gross\nSELECT ..., 'R0310', 'Claims incurred - Gross',\n  gross_incurred\nFROM LIVE.claims_by_lob\n\nUNION ALL\n-- R0550: Expenses incurred\nSELECT ..., 'R0550', 'Expenses incurred',\n  total_expenses\nFROM LIVE.expenses_by_lob\n-- ... 26 UNION ALL total",
              "expectations": [
                  {"name": "row_id_present", "rule": "template_row_id IS NOT NULL", "action": "DROP ROW"},
                  {"name": "amount_not_null", "rule": "amount_eur IS NOT NULL", "action": "DROP ROW"},
              ]},
             # --- Export phase ---
-            {"step": 8, "phase": "Export", "source": "s0501_premiums_claims_expenses",
-             "target": "s0501_summary", "layer": "Gold",
-             "description": "Compute key P&L ratios for actuarial sign-off: loss ratio (net claims / net earned premium), expense ratio (expenses / net earned premium), combined ratio (loss + expense). Combined ratio below 100% means underwriting profit. Also computes RI cession rate per LoB",
+            {"step": 8, "phase": "Export", "source": "3_qrt_s0501_premiums_claims_expenses",
+             "target": "3_qrt_s0501_summary", "layer": "Gold",
+             "description": "Compute key P&L ratios for actuarial sign-off: loss ratio (net 1_raw_claims / net earned premium), expense ratio (1_raw_expenses / net earned premium), combined ratio (loss + expense). Combined ratio below 100% means underwriting profit. Also computes RI cession rate per LoB",
              "row_count_hint": "7 LoB rows with ratios",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW s0501_summary AS\nWITH pivoted AS (\n  SELECT reporting_period, lob_code, lob_name,\n    MAX(CASE WHEN template_row_id = 'R0110'\n         THEN amount_eur END) AS gross_written_premium,\n    MAX(CASE WHEN template_row_id = 'R0300'\n         THEN amount_eur END) AS net_earned_premium,\n    MAX(CASE WHEN template_row_id = 'R0400'\n         THEN amount_eur END) AS net_incurred,\n    MAX(CASE WHEN template_row_id = 'R0550'\n         THEN amount_eur END) AS total_expenses\n  FROM LIVE.s0501_premiums_claims_expenses\n  WHERE lob_code != 0\n  GROUP BY reporting_period, lob_code, lob_name\n)\nSELECT *,\n  ROUND(net_incurred * 100.0 /\n    NULLIF(net_earned_premium, 0), 1)\n    AS loss_ratio_pct,\n  ROUND(total_expenses * 100.0 /\n    NULLIF(net_earned_premium, 0), 1)\n    AS expense_ratio_pct,\n  ROUND((net_incurred + total_expenses) * 100.0 /\n    NULLIF(net_earned_premium, 0), 1)\n    AS combined_ratio_pct\nFROM pivoted",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 3_qrt_s0501_summary AS\nWITH pivoted AS (\n  SELECT reporting_period, lob_code, lob_name,\n    MAX(CASE WHEN template_row_id = 'R0110'\n         THEN amount_eur END) AS gross_written_premium,\n    MAX(CASE WHEN template_row_id = 'R0300'\n         THEN amount_eur END) AS net_earned_premium,\n    MAX(CASE WHEN template_row_id = 'R0400'\n         THEN amount_eur END) AS net_incurred,\n    MAX(CASE WHEN template_row_id = 'R0550'\n         THEN amount_eur END) AS total_expenses\n  FROM LIVE.s0501_premiums_claims_expenses\n  WHERE lob_code != 0\n  GROUP BY reporting_period, lob_code, lob_name\n)\nSELECT *,\n  ROUND(net_incurred * 100.0 /\n    NULLIF(net_earned_premium, 0), 1)\n    AS loss_ratio_pct,\n  ROUND(total_expenses * 100.0 /\n    NULLIF(net_earned_premium, 0), 1)\n    AS expense_ratio_pct,\n  ROUND((net_incurred + total_expenses) * 100.0 /\n    NULLIF(net_earned_premium, 0), 1)\n    AS combined_ratio_pct\nFROM pivoted",
              "expectations": [
                  {"name": "combined_ratio_realistic", "rule": "combined_ratio_pct BETWEEN 50 AND 200", "action": "DROP ROW"},
              ]},
@@ -150,47 +150,47 @@ QRT_DEFS = {
         "id": "s2501",
         "name": "S.25.01",
         "title": "SCR Standard Formula",
-        "table": "s2501_scr_breakdown",
-        "summary_table": "s2501_summary",
+        "table": "3_qrt_s2501_scr_breakdown",
+        "summary_table": "3_qrt_s2501_summary",
         "pipeline": "S.25.01 SCR Standard Formula",
         "lineage": [
             # --- Ingestion phase ---
-            {"step": 1, "phase": "Ingestion", "source": "Risk Engine (Igloo/RAFM)", "target": "risk_factors",
+            {"step": 1, "phase": "Ingestion", "source": "Risk Engine (Igloo/RAFM)", "target": "1_raw_risk_factors",
              "layer": "Bronze", "description": "17 SCR sub-module risk charges from the risk engine: market risk (interest rate, equity, property, spread, currency, concentration), counterparty default (type 1 & 2), non-life UW (premium/reserve, lapse, catastrophe), health, and life",
              "row_count_hint": "17 sub-module charges/quarter",
              "sql_snippet": None, "expectations": []},
-            {"step": 2, "phase": "Ingestion", "source": "Finance / Treasury", "target": "own_funds",
+            {"step": 2, "phase": "Ingestion", "source": "Finance / Treasury", "target": "1_raw_own_funds",
              "layer": "Bronze", "description": "Own funds components by tier: Tier 1 (ordinary share capital, share premium, reconciliation reserve, subordinated liabilities), Tier 2, Tier 3. Used for solvency ratio calculation",
              "row_count_hint": "6 components/quarter",
              "sql_snippet": None, "expectations": []},
             # --- Transformation phase ---
-            {"step": 3, "phase": "Transformation", "source": "risk_factors", "target": "scr_results",
+            {"step": 3, "phase": "Transformation", "source": "1_raw_risk_factors", "target": "2_stg_scr_results",
              "layer": "Model",
              "description": "Load the Standard Formula model (Champion, v1, 2025 calibration) from Unity Catalog and run it against the risk factor charges. The model aggregates sub-modules using EIOPA correlation matrices:\n- Market risk: 7 sub-modules via 7x7 correlation matrix\n- Non-life UW: 3 sub-modules via 3x3 matrix\n- BSCR: 5 modules via 5x5 matrix\nThen adds operational risk (3% of BSCR) and subtracts loss-absorbing capacity of deferred taxes",
              "row_count_hint": "17 inputs -> 19 output components (9 main + 10 sub-modules)",
              "sql_snippet": "# Python (MLflow PythonModel)\nchampion = mlflow.pyfunc.load_model(\n    f'models:/{model_name}@Champion'\n)\n\n# Aggregate correlated:\n# sqrt(sum_i sum_j rho_ij * C_i * C_j)\nscr_market = aggregate(mkt_charges, mkt_corr)\nscr_non_life = aggregate(nl_charges, nl_corr)\nbscr = aggregate(all_modules, bscr_corr)\n\nop_risk = bscr * 0.03  # 3% of BSCR\nlac_dt = min(bscr * 0.10, bscr * 0.15)\nSCR = bscr + op_risk - lac_dt",
              "expectations": []},
             # --- Confirmation phase ---
-            {"step": 4, "phase": "Confirmation", "source": "scr_results", "target": "s2501_scr_breakdown",
+            {"step": 4, "phase": "Confirmation", "source": "2_stg_scr_results", "target": "3_qrt_s2501_scr_breakdown",
              "layer": "Gold",
              "description": "Map SCR model output to EIOPA S.25.01 template rows. Each component gets an EIOPA row reference: R0010 (Market), R0020 (Default), R0050 (Non-life), R0100 (BSCR), R0130 (Op risk), R0150 (LAC_DT), R0200 (SCR). Sub-modules get dotted references (R0010.01-R0010.07)",
              "row_count_hint": "19 components -> 17 template rows",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW\n  s2501_scr_breakdown AS\n\nSELECT reporting_period,\n  'R0010' AS template_row_id,\n  'Market risk' AS template_row_label,\n  amount_eur, model_version\nFROM LIVE.scr_results\nWHERE component = 'SCR_market'\n\nUNION ALL\nSELECT ..., 'R0100',\n  'Basic Solvency Capital Requirement',\n  amount_eur\nWHERE component = 'BSCR'\n\nUNION ALL\nSELECT ..., 'R0200',\n  'Solvency Capital Requirement',\n  amount_eur\nWHERE component = 'SCR'\n-- ... 15 UNION ALL total",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW\n  3_qrt_s2501_scr_breakdown AS\n\nSELECT reporting_period,\n  'R0010' AS template_row_id,\n  'Market risk' AS template_row_label,\n  amount_eur, model_version\nFROM LIVE.scr_results\nWHERE component = 'SCR_market'\n\nUNION ALL\nSELECT ..., 'R0100',\n  'Basic Solvency Capital Requirement',\n  amount_eur\nWHERE component = 'BSCR'\n\nUNION ALL\nSELECT ..., 'R0200',\n  'Solvency Capital Requirement',\n  amount_eur\nWHERE component = 'SCR'\n-- ... 15 UNION ALL total",
              "expectations": [
                  {"name": "row_id_present", "rule": "template_row_id IS NOT NULL", "action": "DROP ROW"},
                  {"name": "amount_not_null", "rule": "amount_eur IS NOT NULL", "action": "DROP ROW"},
              ]},
-            {"step": 5, "phase": "Confirmation", "source": "s2501_scr_breakdown + own_funds",
-             "target": "s2501_summary", "layer": "Gold",
+            {"step": 5, "phase": "Confirmation", "source": "3_qrt_s2501_scr_breakdown + 1_raw_own_funds",
+             "target": "3_qrt_s2501_summary", "layer": "Gold",
              "description": "Combine SCR breakdown with own funds to compute the solvency position. Applies EIOPA tiering limits (Tier 2 capped at 50% SCR, Tier 3 at 15% SCR). MCR = max(25% SCR, EUR 3.7M floor). Solvency ratio = Eligible Own Funds / SCR (must exceed 100%)",
              "row_count_hint": "1 summary row per quarter",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW\n  s2501_summary AS\nWITH scr AS (\n  SELECT reporting_period,\n    MAX(CASE WHEN template_row_id = 'R0200'\n         THEN amount_eur END) AS scr_eur\n  FROM LIVE.s2501_scr_breakdown\n  GROUP BY reporting_period\n),\nfunds AS (\n  SELECT reporting_period,\n    SUM(CASE WHEN tier=1 THEN amount_eur END) AS tier1,\n    SUM(CASE WHEN tier=2 THEN amount_eur END) AS tier2,\n    SUM(CASE WHEN tier=3 THEN amount_eur END) AS tier3\n  FROM LIVE.own_funds GROUP BY reporting_period\n)\nSELECT\n  -- Eligible own funds (tiering limits)\n  tier1 + LEAST(tier2, scr*0.50)\n       + LEAST(tier3, scr*0.15)\n    AS eligible_own_funds_eur,\n  -- Solvency ratio\n  ROUND(eligible / scr * 100, 1)\n    AS solvency_ratio_pct",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW\n  3_qrt_s2501_summary AS\nWITH scr AS (\n  SELECT reporting_period,\n    MAX(CASE WHEN template_row_id = 'R0200'\n         THEN amount_eur END) AS scr_eur\n  FROM LIVE.s2501_scr_breakdown\n  GROUP BY reporting_period\n),\nfunds AS (\n  SELECT reporting_period,\n    SUM(CASE WHEN tier=1 THEN amount_eur END) AS tier1,\n    SUM(CASE WHEN tier=2 THEN amount_eur END) AS tier2,\n    SUM(CASE WHEN tier=3 THEN amount_eur END) AS tier3\n  FROM LIVE.1_raw_own_funds GROUP BY reporting_period\n)\nSELECT\n  -- Eligible own funds (tiering limits)\n  tier1 + LEAST(tier2, scr*0.50)\n       + LEAST(tier3, scr*0.15)\n    AS eligible_own_funds_eur,\n  -- Solvency ratio\n  ROUND(eligible / scr * 100, 1)\n    AS solvency_ratio_pct",
              "expectations": [
                  {"name": "solvency_ratio_positive", "rule": "solvency_ratio_pct > 0", "action": "FAIL UPDATE"},
                  {"name": "scr_positive", "rule": "scr_eur > 0", "action": "FAIL UPDATE"},
              ]},
             # --- Export phase ---
-            {"step": 6, "phase": "Export", "source": "s2501_summary", "target": "EIOPA S.25.01 Template + Solvency Position",
+            {"step": 6, "phase": "Export", "source": "3_qrt_s2501_summary", "target": "EIOPA S.25.01 Template + Solvency Position",
              "layer": "Export",
              "description": "Final solvency position ready for board review and regulatory filing. Includes SCR breakdown, eligible own funds, solvency ratio, MCR ratio, and surplus. Exported as CSV and PDF",
              "row_count_hint": "17 template rows + solvency summary",
@@ -201,15 +201,15 @@ QRT_DEFS = {
         "id": "s2606",
         "name": "S.26.06",
         "title": "NL Underwriting Risk",
-        "table": "s2606_nl_uw_risk",
-        "summary_table": "s2606_summary",
+        "table": "3_qrt_s2606_nl_uw_risk",
+        "summary_table": "3_qrt_s2606_summary",
         "pipeline": "S.26.06 NL UW Risk Template",
         "lineage": [
             {"step": 1, "phase": "Ingestion", "source": "Exposure Management System", "target": "exposures",
              "layer": "Bronze", "description": "Exposure sets by peril and line of business -- total sum insured, deductibles, and limits. ~35 peril x LoB combinations per quarter",
              "row_count_hint": "~35 exposure sets/quarter",
              "sql_snippet": None, "expectations": []},
-            {"step": 2, "phase": "Ingestion", "source": "Actuarial Reserving", "target": "volume_measures",
+            {"step": 2, "phase": "Ingestion", "source": "Actuarial Reserving", "target": "1_raw_volume_measures",
              "layer": "Bronze", "description": "Premium and reserve volume measures by LoB from the actuarial reserving process. Earned premium, written premium (next year), and best estimate claims/premium provisions",
              "row_count_hint": "7 LoB rows/quarter",
              "sql_snippet": None, "expectations": []},
@@ -219,28 +219,28 @@ QRT_DEFS = {
              "sql_snippet": "# Export to Volume (Igloo input)\nexposures_df = spark.sql(\n  \"SELECT * FROM exposures\"\n  \" WHERE reporting_period = '2025-Q3'\"\n)\nexposures_df.toPandas().to_csv(\n  '/Volumes/.../igloo_exchange/'\n  'input_exposures_2025Q3.csv'\n)",
              "expectations": []},
             {"step": 4, "phase": "Stochastic", "source": "Igloo 5.2.1 (10K simulations)", "target": "igloo_run_results",
-             "layer": "Model", "description": "Igloo stochastic catastrophe model runs 10,000 Monte Carlo simulations across 7 perils. Produces VaR and TVaR at 6 return periods (1-in-10 to 1-in-500), gross and net of reinsurance. Results are imported from the exchange Volume back into Delta",
+             "layer": "Model", "description": "Igloo stochastic catastrophe model runs 10,000 Monte Carlo simulations across 7 perils. Produces VaR and TVaR at 6 return periods (1-in-10 to 1-in-500), gross and net of 1_raw_reinsurance. Results are imported from the exchange Volume back into Delta",
              "row_count_hint": "~210 result rows (7 perils x 5 LoB x 6 return periods)",
              "sql_snippet": "# Igloo stochastic engine (mock)\nprint('Running 10,000 simulations...')\ntime.sleep(5)  # Simulated run time\n\n# Import results from Volume\nresults = spark.read.csv(\n  '/Volumes/.../igloo_exchange/'\n  'output_results_2025Q3.csv'\n)\nresults.write.saveAsTable(\n  'igloo_run_results'\n)",
              "expectations": []},
-            {"step": 5, "phase": "Transformation", "source": "igloo_run_results", "target": "cat_risk_by_lob",
+            {"step": 5, "phase": "Transformation", "source": "igloo_run_results", "target": "2_stg_cat_risk_by_lob",
              "layer": "Silver", "description": "Filter Igloo output to the 1-in-200 return period (VaR 99.5%, the Solvency II regulatory standard). Aggregate net-of-reinsurance VaR across all perils per LoB. Validate that TVaR >= VaR (tail is heavier)",
              "row_count_hint": "~210 results -> 5 LoB cat risk charges",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW cat_risk_by_lob AS\nSELECT\n  lob_code, lob_name,\n  SUM(var_net_eur)  AS var_net_eur,\n  SUM(tvar_net_eur) AS tvar_net_eur,\n  COUNT(DISTINCT peril) AS perils_modelled\nFROM LIVE.igloo_run_results\nWHERE return_period = 200  -- 1-in-200 VaR 99.5%\nGROUP BY lob_code, lob_name",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 2_stg_cat_risk_by_lob AS\nSELECT\n  lob_code, lob_name,\n  SUM(var_net_eur)  AS var_net_eur,\n  SUM(tvar_net_eur) AS tvar_net_eur,\n  COUNT(DISTINCT peril) AS perils_modelled\nFROM LIVE.igloo_run_results\nWHERE return_period = 200  -- 1-in-200 VaR 99.5%\nGROUP BY lob_code, lob_name",
              "expectations": [
                  {"name": "var_net_positive", "rule": "var_net_eur > 0", "action": "DROP ROW"},
                  {"name": "tvar_gte_var", "rule": "tvar_net_eur >= var_net_eur", "action": "DROP ROW"},
              ]},
-            {"step": 6, "phase": "Transformation", "source": "volume_measures", "target": "premium_reserve_risk",
+            {"step": 6, "phase": "Transformation", "source": "1_raw_volume_measures", "target": "2_stg_premium_reserve_risk",
              "layer": "Silver", "description": "Apply EIOPA Standard Formula sigma factors to compute premium and reserve risk charges. Premium risk sigma ranges from 6.5% (Medical) to 14% (General liability). Reserve risk sigma ranges from 9% to 19%. Risk charge = 3 x sigma x volume (VaR 99.5% approximation)",
              "row_count_hint": "7 LoB -> 7 premium + 7 reserve risk charges",
-             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW premium_reserve_risk AS\nSELECT\n  lob_code, lob_name,\n  -- Volume measure\n  GREATEST(earned_premium_net,\n           written_premium_net_next_year)\n    + best_estimate_claims_provision\n    AS volume_measure_eur,\n  -- Premium risk = 3 * sigma_prem * volume\n  3.0 * sigma_premium * volume AS premium_risk_eur,\n  -- Reserve risk = 3 * sigma_res * BE_claims\n  3.0 * sigma_reserve * BE_claims AS reserve_risk_eur\nFROM LIVE.volume_measures",
+             "sql_snippet": "CREATE OR REFRESH MATERIALIZED VIEW 2_stg_premium_reserve_risk AS\nSELECT\n  lob_code, lob_name,\n  -- Volume measure\n  GREATEST(earned_premium_net,\n           written_premium_net_next_year)\n    + best_estimate_claims_provision\n    AS volume_measure_eur,\n  -- Premium risk = 3 * sigma_prem * volume\n  3.0 * sigma_premium * volume AS premium_risk_eur,\n  -- Reserve risk = 3 * sigma_res * BE_claims\n  3.0 * sigma_reserve * BE_claims AS reserve_risk_eur\nFROM LIVE.1_raw_volume_measures",
              "expectations": [
                  {"name": "volume_positive", "rule": "volume_measure_eur > 0", "action": "DROP ROW"},
                  {"name": "premium_risk_positive", "rule": "premium_risk_eur >= 0", "action": "DROP ROW"},
                  {"name": "reserve_risk_positive", "rule": "reserve_risk_eur >= 0", "action": "DROP ROW"},
              ]},
-            {"step": 7, "phase": "Confirmation", "source": "cat_risk_by_lob + premium_reserve_risk", "target": "s2606_nl_uw_risk",
+            {"step": 7, "phase": "Confirmation", "source": "2_stg_cat_risk_by_lob + 2_stg_premium_reserve_risk", "target": "3_qrt_s2606_nl_uw_risk",
              "layer": "Gold", "description": "Merge catastrophe risk and premium/reserve risk into EIOPA S.26.06 template. Aggregate via correlation matrix (premium/reserve <-> cat correlation = 0.25). Template rows: R0010 (premium), R0020 (reserve), R0040 (cat), R0100 (diversified total), R0110 (diversification benefit)",
              "row_count_hint": "7 template rows",
              "sql_snippet": "-- Diversified NL UW SCR\nSQRT(\n  POWER(combined_prem_res_risk, 2) +\n  POWER(total_cat_risk, 2) +\n  2 * 0.25 * combined_prem_res_risk\n           * total_cat_risk\n) AS diversified_nl_uw_scr",
@@ -248,14 +248,14 @@ QRT_DEFS = {
                  {"name": "row_id_present", "rule": "template_row_id IS NOT NULL", "action": "DROP ROW"},
                  {"name": "amount_not_null", "rule": "amount_eur IS NOT NULL", "action": "DROP ROW"},
              ]},
-            {"step": 8, "phase": "Confirmation", "source": "s2606_nl_uw_risk", "target": "s2606_summary",
+            {"step": 8, "phase": "Confirmation", "source": "3_qrt_s2606_nl_uw_risk", "target": "3_qrt_s2606_summary",
              "layer": "Gold", "description": "Summary view for actuarial sign-off showing premium risk, reserve risk, cat risk (VaR and TVaR), diversification benefit, and total NL UW SCR. Includes cat risk as percentage of total",
              "row_count_hint": "1 summary row per quarter",
              "sql_snippet": None,
              "expectations": [
                  {"name": "total_nl_uw_positive", "rule": "total_nl_uw_scr > 0", "action": "FAIL UPDATE"},
              ]},
-            {"step": 9, "phase": "Export", "source": "s2606_summary", "target": "EIOPA S.26.06 Template",
+            {"step": 9, "phase": "Export", "source": "3_qrt_s2606_summary", "target": "EIOPA S.26.06 Template",
              "layer": "Export", "description": "Final NL underwriting risk template ready for actuarial sign-off and regulatory submission. Includes stochastic model audit trail (Igloo run ID, simulation count, file paths)",
              "row_count_hint": "7 template rows + summary",
              "sql_snippet": None, "expectations": []},
@@ -290,7 +290,7 @@ async def list_reports():
                     SELECT reporting_period,
                            COUNT(*) AS row_count,
                            ROUND(SUM(CAST(C0170_Total_Solvency_II_Amount AS DOUBLE))/1e6, 1) AS total_sii_meur
-                    FROM {fqn('s0602_list_of_assets')}
+                    FROM {fqn('3_qrt_s0602_list_of_assets')}
                     GROUP BY reporting_period ORDER BY reporting_period DESC LIMIT 1
                 """)
                 if rows:
@@ -303,7 +303,7 @@ async def list_reports():
                 rows = await execute_query(f"""
                     SELECT reporting_period, COUNT(DISTINCT template_row_id) AS row_count,
                            ROUND(SUM(CASE WHEN template_row_id='R0110' AND lob_name='Total' THEN CAST(amount_eur AS DOUBLE) END)/1e6, 1) AS gwp_meur
-                    FROM {fqn('s0501_premiums_claims_expenses')}
+                    FROM {fqn('3_qrt_s0501_premiums_claims_expenses')}
                     GROUP BY reporting_period ORDER BY reporting_period DESC LIMIT 1
                 """)
                 if rows:
@@ -317,7 +317,7 @@ async def list_reports():
                     SELECT reporting_period,
                            ROUND(scr_eur/1e6, 1) AS scr_meur,
                            solvency_ratio_pct
-                    FROM {fqn('s2501_summary')}
+                    FROM {fqn('3_qrt_s2501_summary')}
                     ORDER BY reporting_period DESC LIMIT 1
                 """)
                 if rows:
@@ -332,7 +332,7 @@ async def list_reports():
                     SELECT reporting_period,
                            ROUND(total_nl_uw_scr/1e6, 1) AS nl_uw_meur,
                            cat_pct_of_total
-                    FROM {fqn('s2606_summary')}
+                    FROM {fqn('3_qrt_s2606_summary')}
                     ORDER BY reporting_period DESC LIMIT 1
                 """)
                 if rows:
@@ -345,7 +345,7 @@ async def list_reports():
             try:
                 approval_rows = await execute_query(f"""
                     SELECT status, reviewed_at, reviewed_by, reporting_period AS appr_period
-                    FROM {fqn('qrt_approvals')}
+                    FROM {fqn('6_ai_approvals')}
                     WHERE qrt_id = '{qrt_id}'
                     ORDER BY submitted_at DESC LIMIT 1
                 """)
@@ -433,7 +433,7 @@ async def get_quality(qrt_id: str, period: str = Query(None)):
         checks = []
 
         if qrt_id == "s0602":
-            table = fqn("s0602_list_of_assets")
+            table = fqn("3_qrt_s0602_list_of_assets")
             pw = f"AND reporting_period = '{period}'" if period else ""
 
             total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}")
@@ -456,7 +456,7 @@ async def get_quality(qrt_id: str, period: str = Query(None)):
                            "total": total, "failing": int(null_ccy[0]["c"]), "severity": "DROP ROW"})
 
         elif qrt_id == "s0501":
-            table = fqn("s0501_premiums_claims_expenses")
+            table = fqn("3_qrt_s0501_premiums_claims_expenses")
             pw = f"AND reporting_period = '{period}'" if period else ""
 
             total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}")
@@ -471,14 +471,14 @@ async def get_quality(qrt_id: str, period: str = Query(None)):
                            "total": total, "failing": int(null_row[0]["c"]), "severity": "DROP ROW"})
 
             # Check summary ratios
-            summary = fqn("s0501_summary")
+            summary = fqn("3_qrt_s0501_summary")
             bad_ratio = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE combined_ratio_pct NOT BETWEEN 50 AND 200")
             total_summary = await execute_query(f"SELECT COUNT(*) AS c FROM {summary}")
             checks.append({"check": "Combined ratio realistic (50-200%)", "constraint": "combined_ratio BETWEEN 50 AND 200",
                            "total": int(total_summary[0]["c"]), "failing": int(bad_ratio[0]["c"]), "severity": "DROP ROW"})
 
         elif qrt_id == "s2501":
-            summary = fqn("s2501_summary")
+            summary = fqn("3_qrt_s2501_summary")
 
             total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {summary}")
             total = int(total_r[0]["c"])
@@ -498,7 +498,7 @@ async def get_quality(qrt_id: str, period: str = Query(None)):
                            "severity": "WARNING"})
 
         elif qrt_id == "s2606":
-            summary = fqn("s2606_summary")
+            summary = fqn("3_qrt_s2606_summary")
             total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {summary}")
             total = int(total_r[0]["c"]) if total_r else 0
 
@@ -592,7 +592,7 @@ async def get_template(qrt_id: str, period: str = Query(None)):
             rows = await execute_query(f"""
                 SELECT template_row_id, template_row_label, lob_code, lob_name,
                        CAST(amount_eur AS DOUBLE) AS amount_eur
-                FROM {fqn('s0501_premiums_claims_expenses')} {where}
+                FROM {fqn('3_qrt_s0501_premiums_claims_expenses')} {where}
                 ORDER BY template_row_id, lob_code
             """)
             # Get period
@@ -609,11 +609,11 @@ async def get_template(qrt_id: str, period: str = Query(None)):
                 SELECT template_row_id, template_row_label,
                        CAST(amount_eur AS DOUBLE) AS amount_eur,
                        model_version
-                FROM {fqn('s2501_scr_breakdown')} {where}
+                FROM {fqn('3_qrt_s2501_scr_breakdown')} {where}
                 ORDER BY template_row_id
             """)
             summary = await execute_query(f"""
-                SELECT * FROM {fqn('s2501_summary')} {where}
+                SELECT * FROM {fqn('3_qrt_s2501_summary')} {where}
             """)
             return {"qrt": "S.25.01", "title": "SCR — Standard Formula",
                     "format": "waterfall", "period": period,
@@ -622,12 +622,12 @@ async def get_template(qrt_id: str, period: str = Query(None)):
         elif qrt_id == "s0602":
             where = f"WHERE reporting_period = '{period}'" if period else f"WHERE reporting_period = {latest}"
             summary = await execute_query(f"""
-                SELECT * FROM {fqn('s0602_summary')} {where} ORDER BY cic_category_name
+                SELECT * FROM {fqn('3_qrt_s0602_summary')} {where} ORDER BY cic_category_name
             """)
             count = await execute_query(f"""
                 SELECT COUNT(*) AS cnt,
                        ROUND(SUM(CAST(C0170_Total_Solvency_II_Amount AS DOUBLE)), 2) AS total_sii
-                FROM {fqn('s0602_list_of_assets')} {where}
+                FROM {fqn('3_qrt_s0602_list_of_assets')} {where}
             """)
             return {"qrt": "S.06.02", "title": "List of Assets",
                     "format": "summary", "period": period,
@@ -639,11 +639,11 @@ async def get_template(qrt_id: str, period: str = Query(None)):
             breakdown = await execute_query(f"""
                 SELECT template_row_id, template_row_label,
                        CAST(amount_eur AS DOUBLE) AS amount_eur
-                FROM {fqn('s2606_nl_uw_risk')} {where}
+                FROM {fqn('3_qrt_s2606_nl_uw_risk')} {where}
                 ORDER BY template_row_id
             """)
             summary = await execute_query(f"""
-                SELECT * FROM {fqn('s2606_summary')} {where}
+                SELECT * FROM {fqn('3_qrt_s2606_summary')} {where}
             """)
             return {"qrt": "S.26.06", "title": "Non-Life Underwriting Risk",
                     "format": "waterfall", "period": period,
@@ -867,9 +867,9 @@ ENTITY_LEI = os.getenv("ENTITY_LEI", "5493001KJTIIGC8Y1R12")
 
 
 async def _ensure_ai_reviews_table():
-    """Create qrt_ai_reviews table if it doesn't exist."""
+    """Create 6_ai_reviews table if it doesn't exist."""
     await execute_query(f"""
-        CREATE TABLE IF NOT EXISTS {fqn('qrt_ai_reviews')} (
+        CREATE TABLE IF NOT EXISTS {fqn('6_ai_reviews')} (
             review_id STRING,
             qrt_id STRING,
             reporting_period STRING,
@@ -900,7 +900,7 @@ async def _gather_context(qrt_id: str) -> dict:
     # DQ expectations
     try:
         dq_rows = await execute_query(f"""
-            SELECT * FROM {fqn('dq_expectation_results')}
+            SELECT * FROM {fqn('5_mon_dq_expectation_results')}
             WHERE pipeline_name LIKE '%{defn['name']}%'
             AND reporting_period = '{reporting_period}'
         """)
@@ -910,7 +910,7 @@ async def _gather_context(qrt_id: str) -> dict:
     # Reconciliation
     try:
         recon_rows = await execute_query(f"""
-            SELECT * FROM {fqn('cross_qrt_reconciliation')}
+            SELECT * FROM {fqn('5_mon_cross_qrt_reconciliation')}
             WHERE reporting_period = '{reporting_period}'
         """)
     except Exception:
@@ -921,7 +921,7 @@ async def _gather_context(qrt_id: str) -> dict:
     if qrt_id == "s2501":
         try:
             model_rows = await execute_query(f"""
-                SELECT * FROM {fqn('model_registry_log')}
+                SELECT * FROM {fqn('5_mon_model_registry_log')}
                 WHERE reporting_period = '{reporting_period}'
             """)
             model_data = json.dumps(model_rows, indent=2, default=str)
@@ -1009,7 +1009,7 @@ async def generate_ai_review(qrt_id: str):
         try:
             await _ensure_ai_reviews_table()
             await execute_query(
-                f"""INSERT INTO {fqn('qrt_ai_reviews')}
+                f"""INSERT INTO {fqn('6_ai_reviews')}
                     (review_id, qrt_id, reporting_period, review_text,
                      model_used, input_tokens, output_tokens, created_at, created_by)
                     VALUES (:review_id, :qrt_id, :period, :review_text,
@@ -1061,7 +1061,7 @@ async def list_ai_reviews(qrt_id: str):
         rows = await execute_query(f"""
             SELECT review_id, qrt_id, reporting_period, model_used,
                    input_tokens, output_tokens, created_at, created_by
-            FROM {fqn('qrt_ai_reviews')}
+            FROM {fqn('6_ai_reviews')}
             WHERE qrt_id = '{qrt_id}'
             ORDER BY created_at DESC
             LIMIT 10
@@ -1095,10 +1095,10 @@ async def cross_qrt_consistency_review():
             except Exception:
                 return {}
 
-        s0602 = await get_summary("s0602_summary")
-        s0501 = await get_summary("s0501_summary")
-        s2501 = await get_summary("s2501_summary")
-        s2606 = await get_summary("s2606_summary")
+        s0602 = await get_summary("3_qrt_s0602_summary")
+        s0501 = await get_summary("3_qrt_s0501_summary")
+        s2501 = await get_summary("3_qrt_s2501_summary")
+        s2606 = await get_summary("3_qrt_s2606_summary")
 
         reporting_period = (
             s2501.get("reporting_period")
@@ -1109,7 +1109,7 @@ async def cross_qrt_consistency_review():
         # Get reconciliation results
         try:
             recon_rows = await execute_query(f"""
-                SELECT * FROM {fqn('cross_qrt_reconciliation')}
+                SELECT * FROM {fqn('5_mon_cross_qrt_reconciliation')}
                 WHERE reporting_period = '{reporting_period}'
             """)
         except Exception:
@@ -1182,7 +1182,7 @@ async def stochastic_engine_review():
     try:
         # Get latest reporting period
         s2606_rows = await execute_query(
-            f"SELECT * FROM {fqn('s2606_summary')} ORDER BY reporting_period DESC LIMIT 2"
+            f"SELECT * FROM {fqn('3_qrt_s2606_summary')} ORDER BY reporting_period DESC LIMIT 2"
         )
         reporting_period = s2606_rows[0].get("reporting_period", "Unknown") if s2606_rows else "Unknown"
 
@@ -1194,7 +1194,7 @@ async def stochastic_engine_review():
                        SUM(total_sum_insured_eur) AS total_sum_insured_eur,
                        AVG(aggregate_deductible_eur) AS avg_deductible_eur,
                        AVG(aggregate_limit_eur) AS avg_limit_eur
-                FROM {fqn('exposures')}
+                FROM {fqn('1_raw_exposures')}
                 WHERE reporting_period = '{reporting_period}'
                 GROUP BY lob_code, lob_name, peril
                 ORDER BY lob_code, peril
@@ -1208,7 +1208,7 @@ async def stochastic_engine_review():
                 SELECT run_id, model_name, model_version, num_simulations,
                        num_return_periods, exposure_count, result_count,
                        status, started_at, completed_at
-                FROM {fqn('igloo_run_log')}
+                FROM {fqn('4_eng_stochastic_run_log')}
                 WHERE reporting_period = '{reporting_period}'
             """)
         except Exception:
@@ -1224,7 +1224,7 @@ async def stochastic_engine_review():
                        COUNT(DISTINCT peril) AS num_perils,
                        MAX(num_simulations) AS simulations,
                        MAX(model_version) AS model_version
-                FROM {fqn('igloo_results')}
+                FROM {fqn('4_eng_stochastic_results')}
                 WHERE reporting_period = '{reporting_period}'
                 GROUP BY lob_code, lob_name
                 ORDER BY lob_code

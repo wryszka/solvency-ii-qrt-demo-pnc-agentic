@@ -3,7 +3,7 @@ env:
   - name: CATALOG_NAME
     value: "lr_serverless_aws_us_catalog"
   - name: SCHEMA_NAME
-    value: "solvency2demo"
+    value: "solvency2demo_agentic"
   - name: WAREHOUSE_ID
     value: "ab79eced8207d29b"
   - name: DASHBOARD_ID

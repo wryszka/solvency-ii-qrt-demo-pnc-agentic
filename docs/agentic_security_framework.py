@@ -49,7 +49,7 @@
 # MAGIC | T5 | **Model poisoning** — compromised model produces malicious output | Very Low | High | Using Databricks-hosted Foundation Models (not custom fine-tuned); model endpoint managed by Databricks; no model upload capability | Very Low |
 # MAGIC | T6 | **Denial of service** — flood of AI requests | Medium | Medium | Rate limiting (10/user/hour); serving endpoint autoscales; cost bounded by token limits | Low |
 # MAGIC | T7 | **Unauthorized access** — wrong users trigger AI reviews | Low | Medium | App-level CAN_USE permission; workspace ACLs; SP isolation | Very Low |
-# MAGIC | T8 | **Audit gap** — AI decisions not traceable | Low | High | Every call logged to qrt_ai_reviews with user, model, tokens, timestamp; guardrail verdicts stored | Very Low |
+# MAGIC | T8 | **Audit gap** — AI decisions not traceable | Low | High | Every call logged to 6_ai_reviews with user, model, tokens, timestamp; guardrail verdicts stored | Very Low |
 # MAGIC | T9 | **Compliance violation** — AI review treated as actuarial sign-off | Medium | Critical | UI clearly states "AI Review — Advisory Only"; approval workflow requires separate human action; forbidden patterns prevent "approved" language | Low |
 # MAGIC | T10 | **Model drift** — model quality degrades over time | Medium | Medium | Lakehouse Monitoring on audit table; token usage tracking; guardrail pass rate monitoring; regular review of sample outputs | Low |
 
@@ -78,7 +78,7 @@
 # MAGIC │  Output truncation (15K chars)  |  Content safety                  │
 # MAGIC ├─────────────────────────────────────────────────────────────────────┤
 # MAGIC │                    LAYER 6: AUDIT & OBSERVABILITY                   │
-# MAGIC │  qrt_ai_reviews table  |  Guardrail verdicts  |  Token tracking    │
+# MAGIC │  6_ai_reviews table  |  Guardrail verdicts  |  Token tracking    │
 # MAGIC │  Lakehouse Monitoring  |  System Tables                            │
 # MAGIC ├─────────────────────────────────────────────────────────────────────┤
 # MAGIC │                    LAYER 7: HUMAN-IN-THE-LOOP                       │
@@ -116,10 +116,10 @@
 # MAGIC ```
 # MAGIC PRODUCTION TABLES (policyholder data)           SUMMARY TABLES (aggregated)
 # MAGIC ┌──────────────────────┐                       ┌──────────────────────┐
-# MAGIC │ policies (20K rows)  │──── DLT Pipeline ────>│ s0501_summary (7)    │
-# MAGIC │ claims (15K rows)    │     (aggregation)     │ s0602_summary (5)    │
-# MAGIC │ assets (5K rows)     │                       │ s2501_summary (1)    │
-# MAGIC │ premiums (20K rows)  │                       │ s2606_summary (1)    │
+# MAGIC │ 1_raw_policies (20K rows)  │──── DLT Pipeline ────>│ 3_qrt_s0501_summary (7)    │
+# MAGIC │ 1_raw_claims (15K rows)    │     (aggregation)     │ 3_qrt_s0602_summary (5)    │
+# MAGIC │ 1_raw_assets (5K rows)     │                       │ 3_qrt_s2501_summary (1)    │
+# MAGIC │ 1_raw_premiums (20K rows)  │                       │ 3_qrt_s2606_summary (1)    │
 # MAGIC └──────────────────────┘                       └──────────────────────┘
 # MAGIC        │                                                │
 # MAGIC        │ App SP has NO access                           │ App SP has SELECT
@@ -144,8 +144,8 @@
 # MAGIC ### "The AI could approve a QRT without human sign-off"
 # MAGIC
 # MAGIC **Response:** Architecturally impossible. The AI review and the approval are separate API endpoints
-# MAGIC with different authorization paths. The AI writes to `qrt_ai_reviews`, the approval writes to
-# MAGIC `qrt_approvals`. There is no code path from AI review to approval status change. Additionally,
+# MAGIC with different authorization paths. The AI writes to `6_ai_reviews`, the approval writes to
+# MAGIC `6_ai_approvals`. There is no code path from AI review to approval status change. Additionally,
 # MAGIC 5 forbidden pattern rules block the AI from even using approval language in its output.
 # MAGIC
 # MAGIC ### "The AI could hallucinate numbers and mislead the actuary"
@@ -163,7 +163,7 @@
 # MAGIC
 # MAGIC ### "We can't audit what the AI did"
 # MAGIC
-# MAGIC **Response:** Every AI interaction is logged to `qrt_ai_reviews` with: unique review ID, user identity,
+# MAGIC **Response:** Every AI interaction is logged to `6_ai_reviews` with: unique review ID, user identity,
 # MAGIC model used, token counts, timestamp, full review text, and guardrail verdict. This is queryable via
 # MAGIC standard SQL. Additionally, Databricks system tables (`system.access.audit`) capture every API call.
 # MAGIC
@@ -217,12 +217,12 @@
 
 # DBTITLE 1,Verify: Audit table exists and is populated
 catalog = "lr_serverless_aws_us_catalog"
-schema = "solvency2demo_ai"
+schema = "solvency2demo_agentic"
 
 display(spark.sql(f"""
     SELECT review_id, qrt_id, model_used, input_tokens, output_tokens,
            created_at, created_by
-    FROM {catalog}.{schema}.qrt_ai_reviews
+    FROM {catalog}.{schema}.6_ai_reviews
     ORDER BY created_at DESC
     LIMIT 5
 """))
@@ -263,7 +263,7 @@ for output in test_outputs:
 from pyspark.sql.utils import AnalysisException
 
 # These should succeed (summary tables)
-for table in ["s0602_summary", "s0501_summary", "s2501_summary", "s2606_summary"]:
+for table in ["3_qrt_s0602_summary", "3_qrt_s0501_summary", "3_qrt_s2501_summary", "3_qrt_s2606_summary"]:
     try:
         count = spark.sql(f"SELECT COUNT(*) AS c FROM {catalog}.{schema}.{table}").first().c
         print(f"  [ACCESS OK] {table}: {count} rows")
@@ -305,7 +305,7 @@ for i in range(12):
 # MAGIC - [ ] Serving endpoint ACL set — only app SP has CAN_QUERY
 # MAGIC - [ ] App permissions configured — only authorised users have CAN_USE
 # MAGIC - [ ] Rate limit configured appropriately for expected usage
-# MAGIC - [ ] Lakehouse Monitoring enabled on qrt_ai_reviews table
+# MAGIC - [ ] Lakehouse Monitoring enabled on 6_ai_reviews table
 # MAGIC - [ ] Alerting configured for guardrail failure rate > threshold
 # MAGIC - [ ] Forbidden patterns reviewed and updated for local regulatory language
 # MAGIC - [ ] Sample AI reviews validated by qualified actuary
