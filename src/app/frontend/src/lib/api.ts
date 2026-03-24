@@ -299,3 +299,20 @@ export function fetchRegulatorExamples(): Promise<{ examples: RegulatorExampleCa
 export function askRegulatorQuestion(question: string): Promise<RegulatorAnswer> {
   return postJson('/api/regulator/ask', { question });
 }
+
+// ─── Agent #5: Stochastic Engine API ──────────────────────────────────
+
+export interface StochasticReviewResponse {
+  reporting_period: string;
+  exposure_count: number;
+  result_count: number;
+  review_text: string;
+  model_used: string;
+  input_tokens: number;
+  output_tokens: number;
+  guardrails?: GuardrailVerdict;
+}
+
+export function generateStochasticReview(): Promise<StochasticReviewResponse> {
+  return postJson('/api/reports/stochastic-engine-review');
+}

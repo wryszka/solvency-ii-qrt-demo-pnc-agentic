@@ -11,10 +11,10 @@ import {
   fetchContent, fetchQuality, fetchComparison, fetchLineage, fetchApproval,
   submitForReview, reviewApproval, generateCertificate, downloadFile,
   fetchReconciliation, fetchModelVersions, fetchTemplate,
-  generateAiReview, fetchGovernanceControls,
+  generateAiReview, fetchGovernanceControls, generateStochasticReview,
   formatEur, formatPct,
   type ContentResponse, type QualityCheck, type LineageStep, type ApprovalRecord, type Row,
-  type AiReviewResponse, type GuardrailVerdict, type GovernanceControl,
+  type AiReviewResponse, type GuardrailVerdict, type GovernanceControl, type StochasticReviewResponse,
 } from '../lib/api';
 
 const QRT_TITLES: Record<string, { name: string; title: string }> = {
@@ -24,7 +24,7 @@ const QRT_TITLES: Record<string, { name: string; title: string }> = {
   s2606: { name: 'S.26.06', title: 'NL Underwriting Risk' },
 };
 
-type Tab = 'content' | 'quality' | 'comparison' | 'reconciliation' | 'template' | 'lineage' | 'model' | 'approval';
+type Tab = 'content' | 'quality' | 'comparison' | 'reconciliation' | 'template' | 'lineage' | 'model' | 'stochastic' | 'approval';
 
 export default function ReportDetail() {
   const { qrtId } = useParams<{ qrtId: string }>();
@@ -48,6 +48,7 @@ export default function ReportDetail() {
     { id: 'template', label: 'EIOPA Template' },
     { id: 'lineage', label: 'Lineage' },
     ...(qrtId === 's2501' ? [{ id: 'model' as Tab, label: 'Model Governance' }] : []),
+    ...(qrtId === 's2606' ? [{ id: 'stochastic' as Tab, label: 'Stochastic Engine' }] : []),
     { id: 'approval', label: 'Approve / Export' },
   ];
 
@@ -85,6 +86,7 @@ export default function ReportDetail() {
       {tab === 'template' && <TemplateTab qrtId={qrtId} />}
       {tab === 'lineage' && <LineageTab qrtId={qrtId} />}
       {tab === 'model' && qrtId === 's2501' && <ModelGovernanceTab />}
+      {tab === 'stochastic' && qrtId === 's2606' && <StochasticEngineTab />}
       {tab === 'approval' && <ApprovalTab qrtId={qrtId} />}
     </div>
   );
@@ -1387,6 +1389,157 @@ function S0602Template({ data, totals }: { data: Row[]; totals?: Row }) {
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ═══════ Stochastic Engine Tab (S.26.06 only) ═══════ */
+function StochasticEngineTab() {
+  const [result, setResult] = useState<StochasticReviewResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!loading) return;
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  async function handleReview() {
+    setLoading(true);
+    setError(null);
+    setElapsed(0);
+    try {
+      const r = await generateStochasticReview();
+      setResult(r);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Info card */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200 p-5">
+        <div className="flex items-start gap-4">
+          <div className="p-2.5 bg-indigo-100 rounded-lg">
+            <FlaskConical className="w-6 h-6 text-indigo-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-gray-900">Stochastic Engine Integration</h3>
+            <p className="text-sm text-gray-600 mt-1">
+              S.26.06 uses a stochastic engine for catastrophe risk modelling. The pipeline exports exposure data,
+              runs Monte Carlo simulations, and imports the results back into the QRT.
+            </p>
+            <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-xs text-gray-500 uppercase">Pipeline Flow</span>
+                <div className="font-medium text-gray-900 mt-0.5">Exposures → Engine → Results → QRT</div>
+              </div>
+              <div>
+                <span className="text-xs text-gray-500 uppercase">Simulations</span>
+                <div className="font-medium text-gray-900 mt-0.5">10,000 Monte Carlo scenarios</div>
+              </div>
+              <div>
+                <span className="text-xs text-gray-500 uppercase">Perils</span>
+                <div className="font-medium text-gray-900 mt-0.5">Windstorm, Flood, Earthquake, Hail +3</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* AI Review */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-5 py-4 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-100 rounded-lg">
+                <Bot className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">AI Stochastic Engine Review</h3>
+                <p className="text-xs text-gray-500">Validates inputs, reviews outputs, checks reasonableness</p>
+              </div>
+            </div>
+            {result && (
+              <span className="text-xs text-gray-400 bg-white/60 px-2 py-1 rounded">
+                {result.model_used} | {result.input_tokens + result.output_tokens} tokens
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="p-5">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-4">{error}</div>
+          )}
+
+          {!result && !loading && (
+            <div className="text-center py-8">
+              <FlaskConical className="w-10 h-10 text-indigo-300 mx-auto mb-3" />
+              <p className="text-sm text-gray-600 mb-4 max-w-md mx-auto">
+                The agent reviews the full stochastic cycle: exposure inputs, engine run metadata,
+                simulation results, and how they feed into the QRT — checking for actuarial reasonableness.
+              </p>
+              <button
+                onClick={handleReview}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+              >
+                <Sparkles className="w-4 h-4" />
+                Review Stochastic Engine Run
+              </button>
+            </div>
+          )}
+
+          {loading && (
+            <div className="text-center py-10">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto" />
+              <p className="text-sm text-gray-600 mt-3">Reviewing stochastic engine inputs and outputs...</p>
+              <p className="text-xs text-gray-400 mt-1">{elapsed}s elapsed</p>
+            </div>
+          )}
+
+          {result && (
+            <div>
+              {result.guardrails && (
+                <div className={`mb-3 rounded-lg border px-3 py-2 ${result.guardrails.passed ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <div className="flex items-center gap-2">
+                    <Shield className={`w-3.5 h-3.5 ${result.guardrails.passed ? 'text-green-600' : 'text-amber-600'}`} />
+                    <span className="text-xs font-medium text-gray-700">
+                      Guardrails: {result.guardrails.checks_passed}/{result.guardrails.checks_run} passed
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="prose-sm max-w-none text-sm text-gray-700 [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-gray-900 [&_h2]:mt-4 [&_h2]:mb-2 [&_li]:ml-4 [&_li]:list-disc [&_strong]:text-gray-900"
+                dangerouslySetInnerHTML={{
+                  __html: result.review_text
+                    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                    .replace(/^### (.+)$/gm, '<h3 class="text-sm font-bold text-gray-800 mt-3 mb-1">$1</h3>')
+                    .replace(/^\- (.+)$/gm, '<li>$1</li>')
+                    .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n\n/g, '<br/><br/>')
+                }}
+              />
+
+              <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  {result.exposure_count} exposures | {result.result_count} results | Period: {result.reporting_period}
+                </span>
+                <button onClick={handleReview} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                  Re-review
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

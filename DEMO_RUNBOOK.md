@@ -10,7 +10,7 @@ This is your single reference for running the demo. It covers setup, the demo na
 
 | Asset | URL |
 |-------|-----|
-| **App** | https://solvency2-qrt-7474659673789953.aws.databricksapps.com |
+| **App (Agentic)** | https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com |
 | **Dashboard** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/dashboardsv3/01f1270282cd14fe8c155d26361eec82 |
 | **Genie** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/genie/rooms/01f12703e70110e5b4aeec0e5f7ee98c |
 | **Workspace Notebooks** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/#workspace/Workspace/Users/laurence.ryszka@databricks.com/Solvency%20II%20QRT%20Demo |
@@ -20,7 +20,9 @@ This is your single reference for running the demo. It covers setup, the demo na
 | **S.26.06 Pipeline** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/pipelines/249d6207-55d0-4e86-af47-391c1f9f1c10 |
 | **S.26.06 Job** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/#job/877567542678417 |
 | **Model Registry** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/explore/data/models/lr_serverless_aws_us_catalog/solvency2demo/standard_formula |
-| **Schema** | `lr_serverless_aws_us_catalog.solvency2demo` (36 tables) |
+| **Schema** | `lr_serverless_aws_us_catalog.solvency2demo_ai` (36+ tables) |
+| **AI Agent Notebooks** | `/Workspace/Users/laurence.ryszka@databricks.com/Solvency II QRT Demo/05_AI_Agents/` |
+| **Security Framework** | `05_AI_Agents/agentic_security_framework` |
 
 ---
 
@@ -177,10 +179,10 @@ databricks jobs submit --json '{...}'  # see deploy_demo.sh for pattern
 
 **Click Lineage tab** → show the unique pipeline:
 - **Preparation phase**: Exposures exported as CSV to a Unity Catalog Volume
-- **Stochastic phase**: "Igloo 5.2.1 — 10,000 Monte Carlo simulations, 7 perils"
-- Click **Show SQL** on the Igloo step — shows the export/import code
+- **Stochastic phase**: "Stochastic engine — 10,000 Monte Carlo simulations, 7 perils"
+- Click **Show SQL** on the engine step — shows the export/import code
 
-> "In production, that CSV goes to the Igloo server. The results come back. Databricks orchestrates the handoff and imports the stochastic output."
+> "In production, that CSV goes to whatever stochastic engine you use — Igloo, Remetrica, RMS, Moody's, or your internal model. The results come back. Databricks orchestrates the handoff and imports the stochastic output."
 
 **Content tab**: NL UW risk breakdown — premium risk, reserve risk, cat risk, diversification.
 
@@ -236,13 +238,104 @@ Type: *"What is the solvency ratio for Q3 2025?"*
 
 ---
 
+### Scene 11: AI Actuarial Review (1.5 min) — NEW
+
+**On S.25.01** → **Approve / Export** tab → click **Generate AI Review**
+
+> "Now here's where it gets interesting. Maria used to spend 2-3 hours reviewing each QRT manually. Let's see what the AI agent produces in 15 seconds."
+
+**Show:**
+- Progress bar with timer
+- Structured review appears: Executive Summary, Key Metrics, Period Analysis, DQ Assessment, Risk Flags, Recommendation
+- **Expand the Guardrails banner** — show all checks passed
+- **Expand Agent Governance & Security Controls** — 12 controls across 7 layers
+
+> "The AI read the data, compared to last quarter, checked DQ, and wrote this review. Maria reads it in 5 minutes instead of writing it in 3 hours. But notice — the AI says 'Recommend Approve'. It cannot actually approve. Maria still clicks the button."
+
+---
+
+### Scene 12: Stochastic Engine Review (1 min) — NEW
+
+**Navigate to S.26.06** → click **Stochastic Engine** tab
+
+> "S.26.06 has a stochastic modelling step. In production, exposure data goes out to whatever engine you use — Igloo, Remetrica, RMS, Moody's, internal model — and results come back."
+
+Click **Review Stochastic Engine Run**
+
+> "The AI agent validates the full cycle: were the exposures complete? Are the VaR/TVaR results reasonable for this portfolio? Does the cat risk make sense relative to premium and reserve risk?"
+
+---
+
+### Scene 13: DQ Triage Agent (1 min) — NEW
+
+**Click Data Quality** → click **Investigate DQ Issues**
+
+> "4 assets got quarantined for null IDs. In the old world, someone opens a ticket and waits. The AI agent investigates immediately."
+
+**Show the triage output:**
+- Root cause hypothesis ("likely custodian migration" or "feed timing issue")
+- Remediation steps with owners
+- Impact assessment: blocking vs non-blocking
+
+> "10 seconds instead of 2 hours of log analysis."
+
+---
+
+### Scene 14: Cross-QRT Consistency (1 min) — NEW
+
+**Click Monitor** (Control Tower) → scroll down → click **Run Consistency Review**
+
+> "Before we submit the package, do all 4 QRTs make sense together?"
+
+**Show the AI output:**
+- Checks: assets vs market risk, GWP vs premium risk, NL UW SCR vs S.25.01
+- Actuarial reasonableness commentary
+- Verdict: consistent or issues found
+
+> "A senior actuary does this mentally. The agent does it explicitly and documents it."
+
+---
+
+### Scene 15: Regulator Q&A (1 min) — NEW
+
+**Click Regulator Q&A** in the nav
+
+Type: *"Prepare a response to BaFin regarding the property combined ratio spike in Q4"*
+
+> "Two weeks after submission, BaFin has a question. Instead of pulling data, writing a letter, getting it reviewed — the agent drafts a response grounded in actual QRT data."
+
+**Show the response:** formal tone, specific numbers, QRT references, data-backed explanation.
+
+> "4-8 hours of work to 15 seconds. The compliance officer reviews and sends."
+
+---
+
+### Scene 16: Security Framework (30s) — NEW
+
+**Open the `agentic_security_framework` notebook** (or show the Governance panel in the app)
+
+> "The question every CISO asks: 'How do we know the AI won't break anything?' Answer: 12 controls, 7 layers, defence in depth."
+
+**Quick highlights:**
+- AI cannot approve, submit, or modify data — architecturally impossible
+- Only reads summary tables — never raw policyholder records
+- Every call logged with full audit trail
+- Forbidden pattern detection blocks overreach
+- Human always decides
+
+> "This isn't AI replacing the actuary. It's AI doing the first 3 hours of work so the actuary can focus on the last 5 minutes of judgment."
+
+---
+
 ### Closing
 
 > "What you just saw: from data arrival monitoring, through automated pipelines, stochastic modelling, quality gates, model governance, EIOPA template production, to approval and export — all on one platform.
 >
-> No Excel. No email chains. No 'which version did we use.'
+> And now, with 5 AI agents: the review that took 3 hours happens in 15 seconds. The regulator letter that took a day happens in a minute. The DQ investigation that took half a day happens immediately.
 >
-> The actuary's day goes from chasing data to actually reviewing it."
+> No Excel. No email chains. No 'which version did we use.' And the AI can never approve — the actuary always decides.
+>
+> The actuary's day goes from chasing data to actually using their judgment."
 
 ---
 
@@ -297,8 +390,9 @@ Type: *"What is the solvency ratio for Q3 2025?"*
 | Monitor | `/monitor` | Control Tower — feed SLA, DQ overview, reconciliation |
 | Reports | `/` | QRT list with status and key metrics |
 | Report Detail | `/report/{id}` | 8 tabs: Content, Quality, Comparison, Reconciliation, Template, Lineage, Model Governance*, Approval |
-| Data Quality | `/data-quality` | DQ expectations by pipeline, trend chart |
+| Data Quality | `/data-quality` | DQ expectations by pipeline, trend chart + **AI DQ Triage** |
 | Dashboard | `/dashboard` | Link to Lakeview (5 tabs) |
+| Regulator Q&A | `/regulator-qa` | **AI-powered** chat for regulator questions, board briefings |
 | Ask Genie | `/genie` | Link to Genie space (30 tables) |
 
 *Model Governance tab only appears on S.25.01
@@ -318,6 +412,13 @@ src/03_QRT_S2501_SCR/             — Model + 2 DLT SQL notebooks
 src/04_QRT_S2606_NL_Risk/         — Igloo mock + 4 DLT SQL notebooks
 resources/qrt_s*.yml              — Pipeline + job definitions (DAB)
 src/app/                          — Databricks App (FastAPI + React)
+src/app/server/ai.py              — Foundation Model API wrapper (Sonnet → Llama fallback)
+src/app/server/guardrails.py      — 12 governance controls, 7 layers
+src/app/server/prompts.py         — Per-agent prompt templates
+src/app/server/routes/regulator.py — Regulator Q&A agent
+docs/agentic_security_framework.py — IT security notebook
+docs/demo_agent_walkthrough.py    — Technical demo notebook
+docs/demo_agent_eli5.py           — ELI5 demo notebook
 scripts/create_dashboard.py       — Lakeview dashboard generator
 scripts/add_descriptions.py       — Table/column descriptions
 databricks.yml                    — DAB bundle config

@@ -12,7 +12,10 @@ from fastapi.responses import StreamingResponse
 from server.config import fqn, get_current_user
 from server.sql import execute_query
 from server.ai import generate_review
-from server.prompts import SYSTEM_PROMPT, QRT_PROMPTS, CROSS_QRT_SYSTEM, CROSS_QRT_PROMPT
+from server.prompts import (
+    SYSTEM_PROMPT, QRT_PROMPTS, CROSS_QRT_SYSTEM, CROSS_QRT_PROMPT,
+    STOCHASTIC_ENGINE_SYSTEM, STOCHASTIC_ENGINE_PROMPT,
+)
 from server.guardrails import (
     validate_input, validate_output, truncate_output,
     get_governance_controls, GuardrailVerdict,
@@ -1163,3 +1166,105 @@ async def cross_qrt_consistency_review():
     except Exception as exc:
         logger.exception("Cross-QRT review failed")
         raise HTTPException(500, f"Cross-QRT review failed: {str(exc)}") from exc
+
+
+# ── Agent #5: Stochastic Engine Orchestration ────────────────────────────────
+
+@router.post("/stochastic-engine-review")
+async def stochastic_engine_review():
+    """AI agent reviews stochastic engine inputs/outputs for S.26.06."""
+    user = get_current_user()
+
+    try:
+        # Get latest reporting period
+        s2606_rows = await execute_query(
+            f"SELECT * FROM {fqn('s2606_summary')} ORDER BY reporting_period DESC LIMIT 2"
+        )
+        reporting_period = s2606_rows[0].get("reporting_period", "Unknown") if s2606_rows else "Unknown"
+
+        # Exposure inputs
+        try:
+            exposures = await execute_query(f"""
+                SELECT * FROM {fqn('exposures')}
+                WHERE reporting_period = '{reporting_period}'
+                ORDER BY lob_code, peril
+            """)
+        except Exception:
+            exposures = []
+
+        # Stochastic run log
+        try:
+            run_log = await execute_query(f"""
+                SELECT * FROM {fqn('igloo_run_log')}
+                WHERE reporting_period = '{reporting_period}'
+            """)
+        except Exception:
+            run_log = []
+
+        # Stochastic results
+        try:
+            results = await execute_query(f"""
+                SELECT * FROM {fqn('igloo_results')}
+                WHERE reporting_period = '{reporting_period}'
+                ORDER BY lob_code
+            """)
+        except Exception:
+            results = []
+
+        def fmt(data):
+            return json.dumps(data, indent=2, default=str) if data else "Not available."
+
+        user_prompt = STOCHASTIC_ENGINE_PROMPT.format(
+            entity_name=ENTITY_NAME,
+            entity_lei=ENTITY_LEI,
+            reporting_period=reporting_period,
+            exposure_data=fmt(exposures),
+            run_log=fmt(run_log),
+            stochastic_results=fmt(results),
+            s2606_summary=fmt(s2606_rows[0] if s2606_rows else {}),
+            prior_s2606_summary=fmt(s2606_rows[1] if len(s2606_rows) > 1 else {}),
+        )
+
+        # Guardrails
+        input_verdict = validate_input(user_prompt, user)
+        if not input_verdict.passed:
+            status_code = 429 if input_verdict.rate_limited else 400
+            raise HTTPException(status_code, {
+                "error": "Input guardrail failed",
+                "guardrails": input_verdict.to_dict(),
+            })
+
+        result = await generate_review(STOCHASTIC_ENGINE_SYSTEM, user_prompt)
+        output_verdict = validate_output(result.text)
+        review_text = truncate_output(result.text)
+
+        guardrails = GuardrailVerdict(
+            passed=input_verdict.passed and output_verdict.passed,
+            checks_run=input_verdict.checks_run + output_verdict.checks_run,
+            checks_passed=input_verdict.checks_passed + output_verdict.checks_passed,
+            checks_failed=input_verdict.checks_failed + output_verdict.checks_failed,
+            warnings=input_verdict.warnings + output_verdict.warnings,
+            failures=input_verdict.failures + output_verdict.failures,
+            pii_flags=output_verdict.pii_flags,
+            output_truncated=output_verdict.output_truncated,
+            rate_limited=input_verdict.rate_limited,
+        )
+
+        return {
+            "reporting_period": reporting_period,
+            "exposure_count": len(exposures),
+            "result_count": len(results),
+            "review_text": review_text,
+            "model_used": result.model_used,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "guardrails": guardrails.to_dict(),
+        }
+
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Stochastic engine review failed")
+        raise HTTPException(500, f"Stochastic engine review failed: {str(exc)}") from exc
