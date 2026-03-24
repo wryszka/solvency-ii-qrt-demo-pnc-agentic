@@ -3,17 +3,18 @@ import { useParams, Link } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, Download, CheckCircle2, XCircle, Send,
   ChevronLeft, ChevronRight, FileCheck, Clock, GitCompare, FlaskConical,
-  Sparkles, Bot, Copy, Check,
+  Sparkles, Bot, Copy, Check, Shield, ChevronDown, ChevronUp,
+  AlertTriangle, Eye,
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import {
   fetchContent, fetchQuality, fetchComparison, fetchLineage, fetchApproval,
   submitForReview, reviewApproval, generateCertificate, downloadFile,
   fetchReconciliation, fetchModelVersions, fetchTemplate,
-  generateAiReview,
+  generateAiReview, fetchGovernanceControls,
   formatEur, formatPct,
   type ContentResponse, type QualityCheck, type LineageStep, type ApprovalRecord, type Row,
-  type AiReviewResponse,
+  type AiReviewResponse, type GuardrailVerdict, type GovernanceControl,
 } from '../lib/api';
 
 const QRT_TITLES: Record<string, { name: string; title: string }> = {
@@ -947,7 +948,13 @@ function AiReviewSection({ qrtId }: { qrtId: string }) {
 
         {review && (
           <div className="prose-sm max-w-none">
+            {/* Guardrail verdict banner */}
+            {review.guardrails && <GuardrailBanner verdict={review.guardrails} />}
+
             {renderMarkdown(review.review_text)}
+
+            {/* Governance & Guardrails detail panel */}
+            <GovernancePanel />
 
             {/* Regenerate button */}
             <div className="mt-6 pt-4 border-t border-gray-100 flex items-center justify-between">
@@ -965,6 +972,153 @@ function AiReviewSection({ qrtId }: { qrtId: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ═══════ Guardrail Banner ═══════ */
+function GuardrailBanner({ verdict }: { verdict: GuardrailVerdict }) {
+  const [expanded, setExpanded] = useState(false);
+  const allPassed = verdict.passed && verdict.warnings.length === 0;
+  const hasWarnings = verdict.passed && verdict.warnings.length > 0;
+
+  return (
+    <div className={`mb-4 rounded-lg border ${
+      allPassed ? 'bg-green-50 border-green-200' :
+      hasWarnings ? 'bg-amber-50 border-amber-200' :
+      'bg-red-50 border-red-200'
+    }`}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-4 py-3 flex items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Shield className={`w-4 h-4 ${
+            allPassed ? 'text-green-600' : hasWarnings ? 'text-amber-600' : 'text-red-600'
+          }`} />
+          <span className={`text-sm font-medium ${
+            allPassed ? 'text-green-800' : hasWarnings ? 'text-amber-800' : 'text-red-800'
+          }`}>
+            Guardrails: {verdict.checks_passed}/{verdict.checks_run} checks passed
+            {verdict.warnings.length > 0 && ` | ${verdict.warnings.length} warning(s)`}
+            {verdict.failures.length > 0 && ` | ${verdict.failures.length} failure(s)`}
+          </span>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-3 space-y-2">
+          {verdict.failures.map((f, i) => (
+            <div key={`f-${i}`} className="flex items-start gap-2 text-xs text-red-700">
+              <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{f}</span>
+            </div>
+          ))}
+          {verdict.warnings.map((w, i) => (
+            <div key={`w-${i}`} className="flex items-start gap-2 text-xs text-amber-700">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{w}</span>
+            </div>
+          ))}
+          {verdict.pii_flags.map((p, i) => (
+            <div key={`p-${i}`} className="flex items-start gap-2 text-xs text-violet-700">
+              <Eye className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>PII: {p}</span>
+            </div>
+          ))}
+          {allPassed && (
+            <div className="flex items-start gap-2 text-xs text-green-700">
+              <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>All guardrail checks passed. No forbidden patterns, PII, or structural issues detected.</span>
+            </div>
+          )}
+          <div className="pt-1 border-t border-gray-200/50 text-xs text-gray-500">
+            Checks: input size, rate limit, context validation, required sections, forbidden patterns, PII scan, output truncation
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════ Governance Panel ═══════ */
+function GovernancePanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [controls, setControls] = useState<GovernanceControl[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  function handleToggle() {
+    if (!expanded && controls.length === 0) {
+      setLoading(true);
+      fetchGovernanceControls()
+        .then((r) => setControls(r.controls))
+        .finally(() => setLoading(false));
+    }
+    setExpanded(!expanded);
+  }
+
+  const layers = controls.reduce<Record<string, GovernanceControl[]>>((acc, c) => {
+    if (!acc[c.layer]) acc[c.layer] = [];
+    acc[c.layer].push(c);
+    return acc;
+  }, {});
+
+  const layerColors: Record<string, string> = {
+    'Identity & Access': 'border-blue-300 bg-blue-50',
+    'Model Access': 'border-violet-300 bg-violet-50',
+    'Input Guardrails': 'border-amber-300 bg-amber-50',
+    'Output Guardrails': 'border-orange-300 bg-orange-50',
+    'Audit & Observability': 'border-green-300 bg-green-50',
+    'Human-in-the-Loop': 'border-teal-300 bg-teal-50',
+  };
+
+  return (
+    <div className="mt-6 border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        onClick={handleToggle}
+        className="w-full px-4 py-3 bg-gray-50 flex items-center justify-between text-left hover:bg-gray-100 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Shield className="w-4 h-4 text-gray-600" />
+          <span className="text-sm font-semibold text-gray-800">Agent Governance & Security Controls</span>
+          <span className="text-xs text-gray-400 ml-1">12 controls across 6 layers</span>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+      </button>
+
+      {expanded && (
+        <div className="p-4">
+          {loading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(layers).map(([layer, ctrls]) => (
+                <div key={layer}>
+                  <h4 className="text-xs font-bold uppercase text-gray-500 mb-2 tracking-wide">{layer}</h4>
+                  <div className="space-y-2">
+                    {ctrls.map((ctrl, i) => (
+                      <div key={i} className={`rounded-lg border p-3 ${layerColors[layer] || 'border-gray-200 bg-gray-50'}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{ctrl.control}</p>
+                            <p className="text-xs text-gray-600 mt-0.5">{ctrl.description}</p>
+                          </div>
+                          <span className="shrink-0 text-xs font-mono bg-white/70 px-2 py-0.5 rounded border border-gray-200 text-gray-500">
+                            {ctrl.databricks_feature}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

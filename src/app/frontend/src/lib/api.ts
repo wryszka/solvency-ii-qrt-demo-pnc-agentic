@@ -174,6 +174,18 @@ export function fetchEmbeds(): Promise<EmbedUrls> {
 
 // ─── AI Review API ─────────────────────────────────────────────
 
+export interface GuardrailVerdict {
+  passed: boolean;
+  checks_run: number;
+  checks_passed: number;
+  checks_failed: number;
+  warnings: string[];
+  failures: string[];
+  pii_flags: string[];
+  output_truncated: boolean;
+  rate_limited: boolean;
+}
+
 export interface AiReviewResponse {
   review_id: string;
   qrt_id: string;
@@ -183,6 +195,15 @@ export interface AiReviewResponse {
   input_tokens: number;
   output_tokens: number;
   created_at: string;
+  guardrails?: GuardrailVerdict;
+}
+
+export interface GovernanceControl {
+  layer: string;
+  control: string;
+  description: string;
+  databricks_feature: string;
+  icon: string;
 }
 
 export function generateAiReview(qrtId: string): Promise<AiReviewResponse> {
@@ -191,6 +212,10 @@ export function generateAiReview(qrtId: string): Promise<AiReviewResponse> {
 
 export function fetchAiReviews(qrtId: string): Promise<{ data: Row[] }> {
   return fetchJson(`/api/reports/${qrtId}/ai-reviews`);
+}
+
+export function fetchGovernanceControls(): Promise<{ controls: GovernanceControl[] }> {
+  return fetchJson('/api/reports/agent-governance');
 }
 
 // ─── Monitoring API ────────────────────────────────────────────

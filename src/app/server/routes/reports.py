@@ -13,6 +13,10 @@ from server.config import fqn, get_current_user
 from server.sql import execute_query
 from server.ai import generate_review
 from server.prompts import SYSTEM_PROMPT, QRT_PROMPTS
+from server.guardrails import (
+    validate_input, validate_output, truncate_output,
+    get_governance_controls, GuardrailVerdict,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -939,12 +943,14 @@ async def _gather_context(qrt_id: str) -> dict:
 
 @router.post("/{qrt_id}/ai-review")
 async def generate_ai_review(qrt_id: str):
-    """Generate an AI actuarial review for a QRT."""
+    """Generate an AI actuarial review for a QRT, with full guardrails."""
     if qrt_id not in QRT_DEFS:
         raise HTTPException(404, "Unknown QRT")
 
     if qrt_id not in QRT_PROMPTS:
         raise HTTPException(400, f"No AI review template for {qrt_id}")
+
+    user = get_current_user()
 
     try:
         # Gather data context
@@ -954,22 +960,58 @@ async def generate_ai_review(qrt_id: str):
         prompt_template = QRT_PROMPTS[qrt_id]
         user_prompt = prompt_template.format(**context)
 
+        # ── PRE-CALL GUARDRAILS ──
+        input_verdict = validate_input(user_prompt, user)
+        if not input_verdict.passed:
+            status_code = 429 if input_verdict.rate_limited else 400
+            raise HTTPException(status_code, {
+                "error": "Input guardrail check failed",
+                "guardrails": input_verdict.to_dict(),
+            })
+
         # Call the Foundation Model
         result = await generate_review(SYSTEM_PROMPT, user_prompt)
+
+        # ── POST-CALL GUARDRAILS ──
+        output_verdict = validate_output(result.text)
+
+        # Truncate if needed
+        review_text = truncate_output(result.text)
+
+        # Merge verdicts
+        guardrails = GuardrailVerdict(
+            passed=input_verdict.passed and output_verdict.passed,
+            checks_run=input_verdict.checks_run + output_verdict.checks_run,
+            checks_passed=input_verdict.checks_passed + output_verdict.checks_passed,
+            checks_failed=input_verdict.checks_failed + output_verdict.checks_failed,
+            warnings=input_verdict.warnings + output_verdict.warnings,
+            failures=input_verdict.failures + output_verdict.failures,
+            pii_flags=output_verdict.pii_flags,
+            output_truncated=output_verdict.output_truncated,
+            rate_limited=input_verdict.rate_limited,
+        )
+
+        # If output guardrails hard-failed (e.g. forbidden pattern), still return
+        # but mark it clearly so the UI can show the warning
+        if not output_verdict.passed:
+            logger.warning(
+                "Output guardrail failed for %s: %s", qrt_id, output_verdict.failures
+            )
 
         # Store in audit table
         review_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        user = get_current_user()
 
         try:
             await _ensure_ai_reviews_table()
+            escaped_text = review_text.replace("'", "''")
+            escaped_guardrails = json.dumps(guardrails.to_dict()).replace("'", "''")
             await execute_query(f"""
                 INSERT INTO {fqn('qrt_ai_reviews')} VALUES (
                     '{review_id}',
                     '{qrt_id}',
                     '{context["reporting_period"]}',
-                    '{result.text.replace("'", "''")}',
+                    '{escaped_text}',
                     '{result.model_used}',
                     {result.input_tokens},
                     {result.output_tokens},
@@ -984,15 +1026,17 @@ async def generate_ai_review(qrt_id: str):
             "review_id": review_id,
             "qrt_id": qrt_id,
             "reporting_period": context["reporting_period"],
-            "review_text": result.text,
+            "review_text": review_text,
             "model_used": result.model_used,
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
             "created_at": now,
+            "guardrails": guardrails.to_dict(),
         }
 
+    except HTTPException:
+        raise
     except RuntimeError as exc:
-        # Model endpoint not available
         raise HTTPException(503, str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to generate AI review for %s", qrt_id)
@@ -1018,3 +1062,9 @@ async def list_ai_reviews(qrt_id: str):
         return {"data": rows}
     except Exception:
         return {"data": []}
+
+
+@router.get("/agent-governance")
+async def get_agent_governance():
+    """Return the list of governance controls for demo display."""
+    return {"controls": get_governance_controls()}
