@@ -1,0 +1,12 @@
+command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+env:
+  - name: CATALOG_NAME
+    value: "lr_serverless_aws_us_catalog"
+  - name: SCHEMA_NAME
+    value: "solvency2demo_ai"
+  - name: WAREHOUSE_ID
+    value: "c80acfa212bf1166"
+  - name: DASHBOARD_ID
+    value: "01f1270282cd14fe8c155d26361eec82"
+  - name: GENIE_SPACE_ID
+    value: "01f12703e70110e5b4aeec0e5f7ee98c"

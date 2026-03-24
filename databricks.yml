@@ -1,0 +1,50 @@
+bundle:
+  name: solvency-ii-qrt-demo-pnc
+
+variables:
+  catalog_name:
+    description: Unity Catalog name for all demo tables
+    default: lr_serverless_aws_us_catalog
+  schema_name:
+    description: Schema name for all demo tables (single schema design)
+    default: solvency2demo_ai
+  reporting_date:
+    description: Solvency II reporting reference date (YYYY-MM-DD)
+    default: "2025-12-31"
+  entity_lei:
+    description: LEI of the reporting undertaking (synthetic)
+    default: "5493001KJTIIGC8Y1R12"
+  entity_name:
+    description: Name of the reporting undertaking (synthetic)
+    default: "Bricksurance SE"
+
+workspace:
+  host: https://fevm-lr-serverless-aws-us.cloud.databricks.com
+  profile: DEFAULT
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATALOG: To use a different catalog, change the default above (line 7)
+#          and/or override per target below. The setup notebook will attempt
+#          CREATE CATALOG IF NOT EXISTS — if that fails (no permission), it
+#          falls back to assuming the catalog already exists.
+#
+# WORKSPACE: Change the host/profile below to point to your workspace.
+# ──────────────────────────────────────────────────────────────────────────────
+
+sync:
+  exclude:
+    - src/app/.venv/
+    - src/app/frontend/node_modules/
+    - docs/
+    - "*.bak"
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+
+include:
+  - resources/*.yml
