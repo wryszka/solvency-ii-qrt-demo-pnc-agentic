@@ -1189,14 +1189,14 @@ async def stochastic_engine_review():
         # Exposure inputs — aggregated summary, not raw rows
         try:
             exposures = await execute_query(f"""
-                SELECT lob_code, peril,
-                       COUNT(*) AS exposure_count,
-                       SUM(CAST(sum_insured AS DOUBLE)) AS total_sum_insured,
-                       AVG(CAST(deductible AS DOUBLE)) AS avg_deductible,
-                       AVG(CAST(limit AS DOUBLE)) AS avg_limit
+                SELECT lob_code, lob_name, peril,
+                       SUM(number_of_risks) AS total_risks,
+                       SUM(total_sum_insured_eur) AS total_sum_insured_eur,
+                       AVG(aggregate_deductible_eur) AS avg_deductible_eur,
+                       AVG(aggregate_limit_eur) AS avg_limit_eur
                 FROM {fqn('exposures')}
                 WHERE reporting_period = '{reporting_period}'
-                GROUP BY lob_code, peril
+                GROUP BY lob_code, lob_name, peril
                 ORDER BY lob_code, peril
             """)
         except Exception:
@@ -1205,24 +1205,24 @@ async def stochastic_engine_review():
         # Stochastic run log
         try:
             run_log = await execute_query(f"""
-                SELECT * FROM {fqn('igloo_run_log')}
+                SELECT run_id, model_name, model_version, num_simulations,
+                       num_return_periods, exposure_count, result_count,
+                       status, started_at, completed_at
+                FROM {fqn('igloo_run_log')}
                 WHERE reporting_period = '{reporting_period}'
             """)
         except Exception:
             run_log = []
 
-        # Stochastic results — aggregated by LoB
+        # Stochastic results — by LoB and return period
         try:
             results = await execute_query(f"""
-                SELECT lob_code,
-                       COUNT(*) AS result_rows,
-                       SUM(CAST(var_gross_eur AS DOUBLE)) AS total_var_gross,
-                       SUM(CAST(var_net_eur AS DOUBLE)) AS total_var_net,
-                       SUM(CAST(tvar_net_eur AS DOUBLE)) AS total_tvar_net
+                SELECT lob_code, lob_name, peril, return_period,
+                       var_gross_eur, var_net_eur, tvar_net_eur,
+                       num_simulations, model_version
                 FROM {fqn('igloo_results')}
                 WHERE reporting_period = '{reporting_period}'
-                GROUP BY lob_code
-                ORDER BY lob_code
+                ORDER BY lob_code, return_period
             """)
         except Exception:
             results = []
