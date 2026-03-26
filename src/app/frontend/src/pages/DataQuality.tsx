@@ -57,8 +57,11 @@ export default function DataQuality() {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">Data Quality Dashboard</h2>
-        <p className="text-sm text-gray-500 mt-1">DLT expectation results across all QRT pipelines</p>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold text-gray-900">Data Quality Dashboard</h2>
+          <span className="text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2.5 py-1 rounded-full uppercase tracking-wide">Powered by Databricks Declarative Pipelines Expectations</span>
+        </div>
+        <p className="text-sm text-gray-500 mt-1">Automated data quality gates across all QRT pipelines</p>
       </div>
 
       {/* KPI Strip */}
@@ -88,29 +91,75 @@ export default function DataQuality() {
       <DqTriageSection />
 
       {/* DQ Trend */}
-      {trends.length > 1 && (
+      {trends.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200 p-5">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-5 h-5 text-blue-500" />
             <h3 className="font-semibold text-gray-900">Quality Trend by Quarter</h3>
           </div>
-          <div className="flex items-end gap-3 h-32">
-            {trends.map((t) => {
-              const rate = parseFloat(t.pass_rate_pct || '100');
-              const height = Math.max(10, ((rate - 95) / 5) * 100); // Scale 95-100% to 0-100%
-              const failing = parseInt(t.total_failing || '0');
-              return (
-                <div key={t.reporting_period} className="flex-1 flex flex-col items-center gap-1">
-                  <span className="text-xs font-mono text-gray-500">{rate}%</span>
-                  <div
-                    className={`w-full rounded-t ${rate >= 99.5 ? 'bg-green-400' : rate >= 99 ? 'bg-green-300' : 'bg-amber-400'}`}
-                    style={{ height: `${height}%` }}
-                  />
-                  <span className="text-xs text-gray-500">{t.reporting_period}</span>
-                  <span className="text-[10px] text-gray-400">{failing} quarantined</span>
-                </div>
-              );
-            })}
+
+          {/* SVG line chart */}
+          <div className="relative">
+            <svg viewBox="0 0 600 200" className="w-full h-48">
+              {/* Grid lines */}
+              {[95, 96, 97, 98, 99, 100].map((v) => {
+                const y = 180 - ((v - 95) / 5) * 160;
+                return (
+                  <g key={v}>
+                    <line x1="50" y1={y} x2="580" y2={y} stroke="#e5e7eb" strokeWidth="1" strokeDasharray={v === 100 ? '' : '4 4'} />
+                    <text x="45" y={y + 4} textAnchor="end" className="text-[10px]" fill="#9ca3af">{v}%</text>
+                  </g>
+                );
+              })}
+
+              {/* Data line + area */}
+              {(() => {
+                const pts = trends.map((t, i) => {
+                  const x = 50 + (i / Math.max(1, trends.length - 1)) * 530;
+                  const rate = parseFloat(t.pass_rate_pct || '100');
+                  const y = 180 - ((Math.max(95, rate) - 95) / 5) * 160;
+                  return { x, y, rate, period: t.reporting_period, failing: parseInt(t.total_failing || '0'), total: parseInt(t.total_records || '0') };
+                });
+
+                const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+                const areaPath = linePath + ` L ${pts[pts.length - 1].x} 180 L ${pts[0].x} 180 Z`;
+
+                return (
+                  <>
+                    <path d={areaPath} fill="url(#trendGrad)" opacity="0.3" />
+                    <path d={linePath} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    {pts.map((p, i) => (
+                      <g key={i}>
+                        <circle cx={p.x} cy={p.y} r="5" fill="white" stroke="#3b82f6" strokeWidth="2" />
+                        <circle cx={p.x} cy={p.y} r="3" fill={p.rate >= 99.5 ? '#22c55e' : p.rate >= 99 ? '#3b82f6' : '#f59e0b'} />
+                        <text x={p.x} y={p.y - 12} textAnchor="middle" className="text-[11px] font-semibold" fill="#374151">{p.rate}%</text>
+                        <text x={p.x} y={195} textAnchor="middle" className="text-[10px]" fill="#6b7280">{p.period}</text>
+                      </g>
+                    ))}
+                    <defs>
+                      <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3b82f6" />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                  </>
+                );
+              })()}
+            </svg>
+          </div>
+
+          {/* Summary row */}
+          <div className="flex items-center justify-center gap-6 mt-2 text-xs text-gray-500">
+            {trends.map((t) => (
+              <div key={t.reporting_period} className="flex items-center gap-1.5">
+                <span className="font-medium">{t.reporting_period}:</span>
+                <span className="font-mono">{parseInt(t.total_records || '0').toLocaleString()} records</span>
+                <span className="text-gray-300">|</span>
+                <span className={parseInt(t.total_failing || '0') > 0 ? 'text-amber-600' : 'text-green-600'}>
+                  {parseInt(t.total_failing || '0')} quarantined
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}

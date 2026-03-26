@@ -1240,6 +1240,19 @@ DQ_EXPECTATIONS = [
      "expectation": "solvency_ratio_positive", "action": "FAIL UPDATE", "base_total": 1},
     {"pipeline": "S.25.01 SCR Template", "table": "3_qrt_s2501_summary",
      "expectation": "scr_positive", "action": "FAIL UPDATE", "base_total": 1},
+    # S.26.06 pipeline
+    {"pipeline": "S.26.06 NL UW Risk Template", "table": "2_stg_cat_risk_by_lob",
+     "expectation": "var_net_positive", "action": "DROP ROW", "base_total": 35},
+    {"pipeline": "S.26.06 NL UW Risk Template", "table": "2_stg_cat_risk_by_lob",
+     "expectation": "return_period_valid", "action": "DROP ROW", "base_total": 35},
+    {"pipeline": "S.26.06 NL UW Risk Template", "table": "2_stg_premium_reserve_risk",
+     "expectation": "volume_measure_positive", "action": "FAIL UPDATE", "base_total": 7},
+    {"pipeline": "S.26.06 NL UW Risk Template", "table": "3_qrt_s2606_nl_uw_risk",
+     "expectation": "amount_not_null", "action": "DROP ROW", "base_total": 7},
+    {"pipeline": "S.26.06 NL UW Risk Template", "table": "3_qrt_s2606_summary",
+     "expectation": "cat_risk_positive", "action": "FAIL UPDATE", "base_total": 1},
+    {"pipeline": "S.26.06 NL UW Risk Template", "table": "3_qrt_s2606_summary",
+     "expectation": "diversified_scr_positive", "action": "FAIL UPDATE", "base_total": 1},
 ]
 
 dq_rows = []
