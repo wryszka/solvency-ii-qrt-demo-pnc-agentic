@@ -33,10 +33,10 @@ export default function Genie() {
       {/* Header */}
       <div className={`flex items-center justify-between ${fullscreen ? 'px-4 py-2 border-b border-gray-200 bg-gray-50' : ''}`}>
         <div>
-          <h2 className={`font-bold text-gray-900 ${fullscreen ? 'text-lg' : 'text-2xl'}`}>Query Data</h2>
+          <h2 className={`font-bold text-gray-900 ${fullscreen ? 'text-lg' : 'text-2xl'}`}>Ask AI</h2>
           {!fullscreen && (
             <p className="text-sm text-gray-500 mt-1">
-              Ask natural language questions — get tables and charts back
+              Ask questions about QRT data in natural language — get tables and charts
               <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks AI/BI Genie</span>
             </p>
           )}

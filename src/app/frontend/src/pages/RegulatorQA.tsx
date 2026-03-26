@@ -88,9 +88,9 @@ export default function RegulatorQA() {
     <div className="max-w-4xl mx-auto p-6 space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">AI Analyst</h2>
+        <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Narrative analysis, regulator response drafting, board briefings
+          Solvency II regulatory chatbot — draft regulator responses, prepare board briefings, analyse QRT data
           <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API</span>
         </p>
       </div>
@@ -104,10 +104,10 @@ export default function RegulatorQA() {
               <div className="inline-flex p-3 bg-violet-100 rounded-full mb-4">
                 <Bot className="w-8 h-8 text-violet-600" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Solvency II Regulatory Q&A</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Solvency II Regulatory Chatbot</h3>
               <p className="text-sm text-gray-500 max-w-md mx-auto mb-6">
                 I have access to all 4 QRT summaries, data quality results, and cross-QRT reconciliation.
-                Ask me anything about your regulatory reporting data.
+                Ask me to analyse data, draft regulator responses, or prepare board briefings.
               </p>
 
               {/* Example questions */}
