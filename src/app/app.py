@@ -54,7 +54,7 @@ async def embeds():
     genie_space_id = get_genie_space_id()
     return {
         "dashboard_url": f"{host}/embed/dashboardsv3/{dashboard_id}",
-        "genie_url": f"{host}/embed/genie/rooms/{genie_space_id}",
+        "genie_url": f"{host}/embed/genie/spaces/{genie_space_id}",
         "dashboard_id": dashboard_id,
         "genie_space_id": genie_space_id,
     }

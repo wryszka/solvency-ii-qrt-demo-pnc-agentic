@@ -14,7 +14,7 @@ export default function Genie() {
         // Embed URL for iframe
         setEmbedUrl(e.genie_url);
         // Direct URL for "Open in Databricks" fallback
-        setDirectUrl(e.genie_url.replace('/embed/genie/rooms/', '/genie/rooms/'));
+        setDirectUrl(e.genie_url.replace('/embed/genie/spaces/', '/genie/spaces/'));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
