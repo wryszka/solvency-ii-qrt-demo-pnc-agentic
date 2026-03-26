@@ -95,7 +95,7 @@ export default function RegulatorQA() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>
           <p className="text-sm text-gray-500 mt-1">
-            Solvency II chatbot — ask questions in plain English, get analysis backed by real data
+            Solvency II chatbot
             <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API</span>
           </p>
         </div>
