@@ -22,6 +22,7 @@ interface ChatMessage {
 
 export default function RegulatorQA() {
   const [examples, setExamples] = useState<RegulatorExampleCategory[]>([]);
+  const [genieExamples, setGenieExamples] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +32,10 @@ export default function RegulatorQA() {
 
   useEffect(() => {
     fetchRegulatorExamples()
-      .then((r) => setExamples(r.examples))
+      .then((r: { examples: RegulatorExampleCategory[]; genie_examples?: string[] }) => {
+        setExamples(r.examples);
+        setGenieExamples(r.genie_examples || []);
+      })
       .catch((e) => console.error('Failed to fetch examples:', e));
     fetchEmbeds()
       .then((e) => setGenieUrl(e.genie_url.replace('/embed/genie/spaces/', '/genie/spaces/')))
@@ -113,55 +117,77 @@ export default function RegulatorQA() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ maxHeight: '600px' }}>
           {messages.length === 0 && !loading && (
-            <div className="text-center py-8">
-              <div className="inline-flex p-3 bg-violet-100 rounded-full mb-4">
-                <Bot className="w-8 h-8 text-violet-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Solvency II Regulatory Chatbot</h3>
-              <p className="text-sm text-gray-500 max-w-md mx-auto mb-4">
-                Ask me anything about the company's regulatory reports — in plain English.
-                I'll analyse the data and write you a clear answer.
-              </p>
-
-              {/* Two tools explanation */}
-              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto mb-6">
-                <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-left">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Bot className="w-4 h-4 text-violet-600" />
-                    <span className="text-xs font-bold text-violet-800">This chatbot</span>
-                  </div>
-                  <p className="text-xs text-gray-600">Reads all QRT data and writes narrative answers, analysis, and regulator letters.</p>
+            <div className="py-6">
+              <div className="text-center mb-6">
+                <div className="inline-flex p-3 bg-violet-100 rounded-full mb-3">
+                  <Bot className="w-8 h-8 text-violet-600" />
                 </div>
-                {genieUrl && (
-                  <a href={genieUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 text-left hover:bg-blue-100/50 transition-colors">
-                    <div className="flex items-center gap-2 mb-1">
-                      <ExternalLink className="w-4 h-4 text-blue-600" />
-                      <span className="text-xs font-bold text-blue-800">AI/BI Genie Room</span>
-                    </div>
-                    <p className="text-xs text-gray-600">Query the raw data directly — get tables, charts, and SQL. Opens in Databricks.</p>
-                  </a>
-                )}
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">Solvency II Regulatory Chatbot</h3>
+                <p className="text-sm text-gray-500">Ask questions in plain English — click any example to start</p>
               </div>
 
-              {/* Example questions */}
-              <div className="space-y-4 text-left max-w-lg mx-auto">
-                {examples.map((cat) => (
-                  <div key={cat.category}>
-                    <h4 className="text-xs font-bold uppercase text-gray-400 tracking-wide mb-2">{cat.category}</h4>
-                    <div className="space-y-1.5">
-                      {cat.questions.map((q) => (
-                        <button
-                          key={q}
-                          onClick={() => handleSend(q)}
-                          className="w-full text-left px-3 py-2 rounded-lg border border-gray-100 hover:border-violet-200 hover:bg-violet-50/50 text-sm text-gray-700 hover:text-violet-700 transition-colors flex items-start gap-2"
-                        >
-                          <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                          {q}
-                        </button>
-                      ))}
+              {/* Two panes side by side */}
+              <div className="grid grid-cols-2 gap-4 max-w-2xl mx-auto">
+                {/* Left: Regulatory Chatbot (this page) */}
+                <div className="rounded-lg border-2 border-violet-200 bg-violet-50/30 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Bot className="w-5 h-5 text-violet-600" />
+                    <div>
+                      <div className="text-sm font-bold text-violet-900">Regulatory Chatbot</div>
+                      <div className="text-[10px] text-violet-500">Writes analysis, letters, briefings</div>
                     </div>
                   </div>
-                ))}
+                  <div className="space-y-3">
+                    {examples.map((cat) => (
+                      <div key={cat.category}>
+                        <h4 className="text-[10px] font-bold uppercase text-violet-400 tracking-wide mb-1.5">{cat.category}</h4>
+                        <div className="space-y-1">
+                          {cat.questions.map((q) => (
+                            <button
+                              key={q}
+                              onClick={() => handleSend(q)}
+                              className="w-full text-left px-2.5 py-1.5 rounded-md border border-violet-100 hover:border-violet-300 hover:bg-violet-100/50 text-xs text-gray-700 hover:text-violet-800 transition-colors flex items-start gap-1.5"
+                            >
+                              <MessageSquare className="w-3 h-3 text-violet-400 mt-0.5 shrink-0" />
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Right: Genie Room (opens in Databricks) */}
+                <div className="rounded-lg border-2 border-blue-200 bg-blue-50/30 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <ExternalLink className="w-5 h-5 text-blue-600" />
+                    <div>
+                      <div className="text-sm font-bold text-blue-900">AI/BI Genie Room</div>
+                      <div className="text-[10px] text-blue-500">Returns tables, charts, SQL queries</div>
+                    </div>
+                  </div>
+                  <div className="space-y-1 mb-4">
+                    {genieExamples.map((q) => (
+                      <a
+                        key={q}
+                        href={genieUrl || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full text-left px-2.5 py-1.5 rounded-md border border-blue-100 hover:border-blue-300 hover:bg-blue-100/50 text-xs text-gray-700 hover:text-blue-800 transition-colors flex items-start gap-1.5"
+                      >
+                        <MessageSquare className="w-3 h-3 text-blue-400 mt-0.5 shrink-0" />
+                        {q}
+                      </a>
+                    ))}
+                  </div>
+                  {genieUrl && (
+                    <a href={genieUrl} target="_blank" rel="noopener noreferrer"
+                      className="block w-full text-center px-3 py-2 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors">
+                      Open Genie Room in Databricks
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
           )}

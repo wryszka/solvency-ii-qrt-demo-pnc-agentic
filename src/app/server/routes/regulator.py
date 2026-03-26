@@ -21,18 +21,9 @@ ENTITY_LEI = os.getenv("ENTITY_LEI", "5493001KJTIIGC8Y1R12")
 
 EXAMPLE_QUESTIONS = [
     {
-        "category": "Simple Questions",
-        "questions": [
-            "Are we making or losing money on motor insurance?",
-            "How much cash do we have to cover our risks?",
-            "Which type of insurance is most profitable for us?",
-            "Are we in good financial health this quarter?",
-        ],
-    },
-    {
         "category": "Regulator Responses",
         "questions": [
-            "The regulator is asking why our property insurance losses went up — draft a response",
+            "The regulator is asking why our property losses went up — draft a response",
             "Prepare a letter explaining our solvency position to BaFin",
             "Why did our risk capital requirement change this quarter?",
         ],
@@ -46,13 +37,22 @@ EXAMPLE_QUESTIONS = [
         ],
     },
     {
-        "category": "Deep Analysis",
+        "category": "Analysis & Interpretation",
         "questions": [
-            "Which line of business has the worst combined ratio and why?",
-            "How has our investment portfolio changed this quarter?",
+            "Are we in good financial health this quarter?",
             "Is our reinsurance programme adequate for the risks we hold?",
+            "Explain the relationship between our assets and our risk charges",
         ],
     },
+]
+
+GENIE_EXAMPLES = [
+    "What is the solvency ratio for Q3 2025?",
+    "Show combined ratio by line of business",
+    "Which line of business has the highest gross written premium?",
+    "Show asset allocation by CIC category",
+    "Compare own funds vs SCR across all quarters",
+    "How many claims were there in Q3 for motor?",
 ]
 
 
@@ -126,7 +126,7 @@ async def _gather_full_context() -> dict:
 @router.get("/examples")
 async def get_examples():
     """Return example questions grouped by category."""
-    return {"examples": EXAMPLE_QUESTIONS}
+    return {"examples": EXAMPLE_QUESTIONS, "genie_examples": GENIE_EXAMPLES}
 
 
 @router.post("/ask")
