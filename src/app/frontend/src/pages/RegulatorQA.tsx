@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Send, Bot, User, Shield, ChevronDown,
-  CheckCircle2, AlertTriangle, MessageSquare, Building2,
+  CheckCircle2, AlertTriangle, MessageSquare, Building2, ExternalLink,
 } from 'lucide-react';
 import {
-  fetchRegulatorExamples, askRegulatorQuestion,
+  fetchRegulatorExamples, askRegulatorQuestion, fetchEmbeds,
   type RegulatorExampleCategory, type RegulatorAnswer, type GuardrailVerdict,
 } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
@@ -26,12 +26,16 @@ export default function RegulatorQA() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [genieUrl, setGenieUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchRegulatorExamples()
       .then((r) => setExamples(r.examples))
       .catch((e) => console.error('Failed to fetch examples:', e));
+    fetchEmbeds()
+      .then((e) => setGenieUrl(e.genie_url.replace('/embed/genie/spaces/', '/genie/spaces/')))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -87,12 +91,21 @@ export default function RegulatorQA() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-4">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Solvency II regulatory chatbot — draft regulator responses, prepare board briefings, analyse QRT data
-          <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API</span>
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Solvency II chatbot — ask questions in plain English, get analysis backed by real data
+            <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API</span>
+          </p>
+        </div>
+        {genieUrl && (
+          <a href={genieUrl} target="_blank" rel="noopener noreferrer"
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors">
+            <ExternalLink className="w-3.5 h-3.5" />
+            Query data with AI/BI Genie
+          </a>
+        )}
       </div>
 
       {/* Chat area */}
@@ -100,15 +113,35 @@ export default function RegulatorQA() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ maxHeight: '600px' }}>
           {messages.length === 0 && !loading && (
-            <div className="text-center py-12">
+            <div className="text-center py-8">
               <div className="inline-flex p-3 bg-violet-100 rounded-full mb-4">
                 <Bot className="w-8 h-8 text-violet-600" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Solvency II Regulatory Chatbot</h3>
-              <p className="text-sm text-gray-500 max-w-md mx-auto mb-6">
-                I have access to all 4 QRT summaries, data quality results, and cross-QRT reconciliation.
-                Ask me to analyse data, draft regulator responses, or prepare board briefings.
+              <p className="text-sm text-gray-500 max-w-md mx-auto mb-4">
+                Ask me anything about the company's regulatory reports — in plain English.
+                I'll analyse the data and write you a clear answer.
               </p>
+
+              {/* Two tools explanation */}
+              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto mb-6">
+                <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 text-left">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Bot className="w-4 h-4 text-violet-600" />
+                    <span className="text-xs font-bold text-violet-800">This chatbot</span>
+                  </div>
+                  <p className="text-xs text-gray-600">Reads all QRT data and writes narrative answers, analysis, and regulator letters.</p>
+                </div>
+                {genieUrl && (
+                  <a href={genieUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 text-left hover:bg-blue-100/50 transition-colors">
+                    <div className="flex items-center gap-2 mb-1">
+                      <ExternalLink className="w-4 h-4 text-blue-600" />
+                      <span className="text-xs font-bold text-blue-800">AI/BI Genie Room</span>
+                    </div>
+                    <p className="text-xs text-gray-600">Query the raw data directly — get tables, charts, and SQL. Opens in Databricks.</p>
+                  </a>
+                )}
+              </div>
 
               {/* Example questions */}
               <div className="space-y-4 text-left max-w-lg mx-auto">

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Building2, FileText, BarChart3, MessageCircle, Activity, ShieldCheck, Bot } from 'lucide-react';
+import { Building2, FileText, BarChart3, Activity, ShieldCheck, Bot } from 'lucide-react';
 import Monitor from './pages/Monitor';
 import ReportsList from './pages/ReportsList';
 import ReportDetail from './pages/ReportDetail';
@@ -41,7 +41,6 @@ function Nav() {
             <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
             <NavLink to="/" icon={FileText} label="Reports" />
             <NavLink to="/dashboard" icon={BarChart3} label="Dashboards" />
-            <NavLink to="/genie" icon={MessageCircle} label="Ask AI" />
             <NavLink to="/regulator-qa" icon={Bot} label="Regulatory AI" />
           </nav>
         </div>

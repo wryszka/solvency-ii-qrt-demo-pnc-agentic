@@ -21,27 +21,36 @@ ENTITY_LEI = os.getenv("ENTITY_LEI", "5493001KJTIIGC8Y1R12")
 
 EXAMPLE_QUESTIONS = [
     {
-        "category": "Regulator Query",
+        "category": "Simple Questions",
         "questions": [
-            "Why did the solvency ratio change between Q3 and Q4 2025?",
-            "Prepare a response to BaFin regarding the property combined ratio spike in Q4",
-            "Explain the increase in non-life underwriting risk SCR",
+            "Are we making or losing money on motor insurance?",
+            "How much cash do we have to cover our risks?",
+            "Which type of insurance is most profitable for us?",
+            "Are we in good financial health this quarter?",
         ],
     },
     {
-        "category": "Board Briefing",
+        "category": "Regulator Responses",
         "questions": [
-            "Prepare a summary of the Q4 2025 solvency position for the Risk Committee",
-            "What are the key risk drivers this quarter compared to last?",
-            "Is our capital position adequate given the current risk profile?",
+            "The regulator is asking why our property insurance losses went up — draft a response",
+            "Prepare a letter explaining our solvency position to BaFin",
+            "Why did our risk capital requirement change this quarter?",
         ],
     },
     {
-        "category": "Data Analysis",
+        "category": "Board & Management",
+        "questions": [
+            "Summarise our financial position for the board in plain English",
+            "What are the top 3 things the CEO should worry about this quarter?",
+            "Compare this quarter to last — what got better and what got worse?",
+        ],
+    },
+    {
+        "category": "Deep Analysis",
         "questions": [
             "Which line of business has the worst combined ratio and why?",
-            "How has the asset allocation changed this quarter?",
-            "What is the cat risk exposure relative to the total NL UW SCR?",
+            "How has our investment portfolio changed this quarter?",
+            "Is our reinsurance programme adequate for the risks we hold?",
         ],
     },
 ]
