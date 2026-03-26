@@ -58,18 +58,15 @@ function Nav() {
 function BackstageLink() {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
-    fetch('/api/embeds')
+    fetch('/api/backstage-url')
       .then((r) => r.json())
-      .then((d) => {
-        const host = (d.dashboard_url || '').split('/embed/')[0];
-        if (host) setUrl(host + '#workspace');
-      })
+      .then((d) => { if (d.url) setUrl(d.url); })
       .catch(() => {});
   }, []);
   if (!url) return null;
   return (
     <a href={url} target="_blank" rel="noopener noreferrer"
-      title="Backstage — open Databricks workspace"
+      title="Backstage — technical deep dive notebook"
       className="p-1 rounded hover:bg-white/10 transition-colors opacity-30 hover:opacity-100">
       <Code2 className="w-4 h-4" />
     </a>

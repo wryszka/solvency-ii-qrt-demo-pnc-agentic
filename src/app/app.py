@@ -61,6 +61,18 @@ async def embeds():
     }
 
 
+@app.get("/api/backstage-url")
+async def backstage_url():
+    host = get_workspace_host()
+    try:
+        from server.config import get_current_user
+        user = get_current_user()
+        nb_path = f"/Workspace/Users/{user}/solvency-ii-qrt-demo-agentic/06_backstage_technical"
+        return {"url": f"{host}#notebook{nb_path}"}
+    except Exception:
+        return {"url": f"{host}#workspace"}
+
+
 if FRONTEND_DIR.is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
 
