@@ -244,6 +244,23 @@ export function fetchModelVersions(period?: string): Promise<{ data: Row[] }> {
   return fetchJson(`/api/monitoring/model-versions${qs}`);
 }
 
+// ─── Feed Detail API ──────────────────────────────────────────────
+
+export interface FeedDetail {
+  feed_name: string;
+  table: string;
+  pipeline: string;
+  freshness: Row[];
+  completeness: Row[];
+  dq_rules: Row[];
+  sample: Row[];
+  columns: Row[];
+}
+
+export function fetchFeedDetail(feedName: string): Promise<FeedDetail> {
+  return fetchJson(`/api/monitoring/feed-detail/${feedName}`);
+}
+
 // ─── Agent #3: DQ Triage API ──────────────────────────────────────────
 
 export interface DqTriageResponse {

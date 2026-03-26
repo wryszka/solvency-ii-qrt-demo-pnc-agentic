@@ -109,6 +109,104 @@ async def get_model_versions(period: str = Query(None)):
         raise HTTPException(500, str(exc)) from exc
 
 
+# ── Feed Detail ──────────────────────────────────────────────────────────────
+
+# Map feed names to their source raw table and the DQ pipeline/table they flow through
+FEED_MAP = {
+    "1_raw_assets": {"table": "1_raw_assets", "dq_pipeline": "S.06.02 List of Assets", "dq_tables": ["2_stg_assets_enriched", "3_qrt_s0602_list_of_assets"]},
+    "1_raw_premiums": {"table": "1_raw_premiums", "dq_pipeline": "S.05.01 Premiums Claims Expenses", "dq_tables": ["2_stg_premiums_by_lob", "3_qrt_s0501_summary"]},
+    "1_raw_claims": {"table": "1_raw_claims", "dq_pipeline": "S.05.01 Premiums Claims Expenses", "dq_tables": ["2_stg_claims_by_lob", "3_qrt_s0501_summary"]},
+    "1_raw_expenses": {"table": "1_raw_expenses", "dq_pipeline": "S.05.01 Premiums Claims Expenses", "dq_tables": ["2_stg_expenses_by_lob"]},
+    "1_raw_risk_factors": {"table": "1_raw_risk_factors", "dq_pipeline": "S.25.01 SCR Template", "dq_tables": ["3_qrt_s2501_scr_breakdown", "3_qrt_s2501_summary"]},
+    "1_raw_exposures": {"table": "1_raw_exposures", "dq_pipeline": "S.26.06 NL UW Risk Template", "dq_tables": ["4_eng_stochastic_results"]},
+}
+
+
+@router.get("/feed-detail/{feed_name}")
+async def get_feed_detail(feed_name: str):
+    """Detailed view of a data feed: freshness history, completeness, DQ rules, sample data."""
+    try:
+        feed_info = FEED_MAP.get(feed_name, {"table": feed_name, "dq_pipeline": "", "dq_tables": []})
+        table = feed_info["table"]
+
+        # 1. Freshness history — SLA status across all quarters
+        freshness = await execute_query(f"""
+            SELECT reporting_period, feed_name, actual_arrival, sla_deadline,
+                   status, row_count, dq_pass_rate, notes
+            FROM {fqn('5_mon_pipeline_sla_status')}
+            WHERE feed_name = '{feed_name}'
+            ORDER BY reporting_period DESC
+        """)
+
+        # 2. Completeness — row counts across quarters for comparison
+        try:
+            completeness = await execute_query(f"""
+                SELECT reporting_period,
+                       COUNT(*) AS row_count
+                FROM {fqn(table)}
+                GROUP BY reporting_period
+                ORDER BY reporting_period DESC
+            """)
+        except Exception:
+            completeness = []
+
+        # Compute period-over-period change
+        for i, row in enumerate(completeness):
+            current = int(row.get("row_count", 0))
+            if i + 1 < len(completeness):
+                prev = int(completeness[i + 1].get("row_count", 0))
+                change_pct = round((current - prev) / prev * 100, 1) if prev > 0 else 0
+                row["prev_row_count"] = str(prev)
+                row["change_pct"] = str(change_pct)
+            else:
+                row["prev_row_count"] = None
+                row["change_pct"] = None
+
+        # 3. DQ expectations for this feed's pipeline/tables
+        dq_rules = []
+        if feed_info["dq_pipeline"]:
+            dq_rules = await execute_query(f"""
+                SELECT expectation_name, table_name, total_records,
+                       passing_records, failing_records,
+                       ROUND(passing_records * 100.0 / NULLIF(total_records, 0), 1) AS pass_rate_pct
+                FROM {fqn('5_mon_dq_expectation_results')}
+                WHERE pipeline_name LIKE '%{feed_info["dq_pipeline"]}%'
+                AND reporting_period = (SELECT MAX(reporting_period) FROM {fqn('5_mon_dq_expectation_results')})
+                ORDER BY table_name, expectation_name
+            """)
+
+        # 4. Sample data (first 20 rows of latest period)
+        try:
+            sample = await execute_query(f"""
+                SELECT * FROM {fqn(table)}
+                WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn(table)})
+                LIMIT 20
+            """)
+        except Exception:
+            sample = []
+
+        # 5. Schema/columns
+        try:
+            columns = await execute_query(f"DESCRIBE {fqn(table)}")
+        except Exception:
+            columns = []
+
+        return {
+            "feed_name": feed_name,
+            "table": table,
+            "pipeline": feed_info["dq_pipeline"],
+            "freshness": freshness,
+            "completeness": completeness,
+            "dq_rules": dq_rules,
+            "sample": sample,
+            "columns": columns,
+        }
+
+    except Exception as exc:
+        logger.exception("Failed to fetch feed detail for %s", feed_name)
+        raise HTTPException(500, str(exc)) from exc
+
+
 # ── Agent #3: DQ Triage ─────────────────────────────────────────────────────
 
 @router.post("/dq-investigate")
