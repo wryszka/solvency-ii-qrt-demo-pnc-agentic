@@ -9,4 +9,4 @@ env:
   - name: DASHBOARD_ID
     value: "01f128f6dc951605aca6caa3ec26edb3"
   - name: GENIE_SPACE_ID
-    value: "01f12703e70110e5b4aeec0e5f7ee98c"
+    value: "01f128fe84201b87ae7c04614b375d6c"
