@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Send, Bot, User, Shield, ChevronDown,
-  CheckCircle2, AlertTriangle, MessageSquare, Building2, ExternalLink,
+  CheckCircle2, AlertTriangle, MessageSquare, Building2, Database,
 } from 'lucide-react';
 import {
-  fetchRegulatorExamples, askRegulatorQuestion, fetchEmbeds,
+  fetchRegulatorExamples, askRegulatorQuestion, askGenie,
   type RegulatorExampleCategory, type RegulatorAnswer, type GuardrailVerdict,
+  // GenieResponse type used inline
 } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
 
@@ -27,7 +28,6 @@ export default function RegulatorQA() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [genieUrl, setGenieUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,9 +37,6 @@ export default function RegulatorQA() {
         setGenieExamples(r.genie_examples || []);
       })
       .catch((e) => console.error('Failed to fetch examples:', e));
-    fetchEmbeds()
-      .then((e) => setGenieUrl(e.genie_url.replace('/embed/genie/spaces/', '/genie/rooms/')))
-      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -95,21 +92,12 @@ export default function RegulatorQA() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Solvency II chatbot
-            <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API</span>
-          </p>
-        </div>
-        {genieUrl && (
-          <a href={genieUrl} target="_blank" rel="noopener noreferrer"
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors">
-            <ExternalLink className="w-3.5 h-3.5" />
-            Query data with AI/BI Genie
-          </a>
-        )}
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Solvency II chatbot
+          <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API + AI/BI Genie</span>
+        </p>
       </div>
 
       {/* Chat area */}
@@ -158,36 +146,8 @@ export default function RegulatorQA() {
                   </div>
                 </div>
 
-                {/* Right: Genie Room (opens in Databricks) */}
-                <div className="rounded-lg border-2 border-blue-200 bg-blue-50/30 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <ExternalLink className="w-5 h-5 text-blue-600" />
-                    <div>
-                      <div className="text-sm font-bold text-blue-900">AI/BI Genie Room</div>
-                      <div className="text-[10px] text-blue-500">Returns tables, charts, SQL queries</div>
-                    </div>
-                  </div>
-                  <div className="space-y-1 mb-4">
-                    {genieExamples.map((q) => (
-                      <a
-                        key={q}
-                        href={genieUrl || '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full text-left px-2.5 py-1.5 rounded-md border border-blue-100 hover:border-blue-300 hover:bg-blue-100/50 text-xs text-gray-700 hover:text-blue-800 transition-colors flex items-start gap-1.5"
-                      >
-                        <MessageSquare className="w-3 h-3 text-blue-400 mt-0.5 shrink-0" />
-                        {q}
-                      </a>
-                    ))}
-                  </div>
-                  {genieUrl && (
-                    <a href={genieUrl} target="_blank" rel="noopener noreferrer"
-                      className="block w-full text-center px-3 py-2 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors">
-                      Open Genie Room in Databricks
-                    </a>
-                  )}
-                </div>
+                {/* Right: Genie — interactive data queries */}
+                <GeniePane examples={genieExamples} />
               </div>
             </div>
           )}
@@ -310,6 +270,136 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════ Genie Pane ═══════ */
+function GeniePane({ examples }: { examples: string[] }) {
+  const [question, setQuestion] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ answer: string; sql: string | null; columns: string[]; rows: (string | null)[][] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleAsk(q?: string) {
+    const query = (q || question).trim();
+    if (!query || loading) return;
+    setQuestion('');
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await askGenie(query);
+      setResult(r);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border-2 border-blue-200 bg-blue-50/30 p-4 flex flex-col">
+      <div className="flex items-center gap-2 mb-3">
+        <Database className="w-5 h-5 text-blue-600" />
+        <div>
+          <div className="text-sm font-bold text-blue-900">AI/BI Genie</div>
+          <div className="text-[10px] text-blue-500">Returns tables, charts, SQL queries</div>
+        </div>
+      </div>
+
+      {!result && !loading && !error && (
+        <div className="space-y-1 mb-3">
+          {examples.map((q) => (
+            <button
+              key={q}
+              onClick={() => handleAsk(q)}
+              className="w-full text-left px-2.5 py-1.5 rounded-md border border-blue-100 hover:border-blue-300 hover:bg-blue-100/50 text-xs text-gray-700 hover:text-blue-800 transition-colors flex items-start gap-1.5"
+            >
+              <MessageSquare className="w-3 h-3 text-blue-400 mt-0.5 shrink-0" />
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex-1 flex items-center justify-center py-8">
+          <div className="text-center">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+            <p className="text-xs text-gray-500 mt-2">Querying data...</p>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
+      )}
+
+      {result && (
+        <div className="flex-1 space-y-2 mb-3">
+          {/* Answer text */}
+          <p className="text-xs text-gray-700">{result.answer}</p>
+
+          {/* SQL */}
+          {result.sql && (
+            <details className="text-xs">
+              <summary className="text-blue-600 cursor-pointer font-medium">Show SQL</summary>
+              <pre className="mt-1 p-2 bg-gray-900 text-green-300 rounded text-[10px] overflow-x-auto">{result.sql}</pre>
+            </details>
+          )}
+
+          {/* Data table */}
+          {result.columns.length > 0 && result.rows.length > 0 && (
+            <div className="overflow-x-auto max-h-48 border border-blue-200 rounded">
+              <table className="min-w-full text-[10px]">
+                <thead className="bg-blue-50 sticky top-0">
+                  <tr>
+                    {result.columns.map((col) => (
+                      <th key={col} className="px-2 py-1 text-left font-semibold text-blue-800 border-b whitespace-nowrap">{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.rows.map((row, i) => (
+                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-blue-50/30'}>
+                      {row.map((val, j) => (
+                        <td key={j} className="px-2 py-1 border-b border-blue-100 whitespace-nowrap font-mono text-gray-700">
+                          {val ?? <span className="text-gray-300">null</span>}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <button onClick={() => setResult(null)} className="text-[10px] text-blue-600 hover:text-blue-700 font-medium">
+            Ask another question
+          </button>
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="flex gap-1.5 mt-auto">
+        <input
+          type="text"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
+          placeholder="Ask about your data..."
+          disabled={loading}
+          className="flex-1 border border-blue-200 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+        />
+        <button
+          onClick={() => handleAsk()}
+          disabled={loading || !question.trim()}
+          className="px-2.5 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-xs"
+        >
+          <Send className="w-3 h-3" />
+        </button>
       </div>
     </div>
   );

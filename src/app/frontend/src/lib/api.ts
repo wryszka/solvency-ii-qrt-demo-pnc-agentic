@@ -348,3 +348,17 @@ export interface StochasticReviewResponse {
 export function generateStochasticReview(): Promise<StochasticReviewResponse> {
   return postJson('/api/reports/stochastic-engine-review');
 }
+
+// ─── Genie API ────────────────────────────────────────────────────
+
+export interface GenieResponse {
+  answer: string;
+  sql: string | null;
+  columns: string[];
+  rows: (string | null)[][];
+  conversation_id: string;
+}
+
+export function askGenie(question: string): Promise<GenieResponse> {
+  return postJson('/api/genie/ask', { question });
+}
