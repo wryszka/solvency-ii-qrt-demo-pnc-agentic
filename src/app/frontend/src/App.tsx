@@ -32,14 +32,14 @@ function Nav() {
           <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
             <FileText className="w-6 h-6 text-blue-400" />
             <div>
-              <h1 className="text-lg font-bold tracking-tight">Solvency II QRT</h1>
-              <p className="text-xs text-gray-400">Reporting & Approval</p>
+              <h1 className="text-lg font-bold tracking-tight">Solvency II</h1>
+              <p className="text-xs text-gray-400">Reporting & Approval Dashboard</p>
             </div>
           </Link>
           <nav className="flex items-center gap-1 ml-4">
             <NavLink to="/monitor" icon={Activity} label="Monitor" />
-            <NavLink to="/" icon={FileText} label="Reports" />
             <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
+            <NavLink to="/" icon={FileText} label="Reports" />
             <NavLink to="/dashboard" icon={BarChart3} label="Dashboard" />
             <NavLink to="/regulator-qa" icon={Bot} label="Regulator Q&A" />
             <NavLink to="/genie" icon={MessageCircle} label="Ask Genie" />
