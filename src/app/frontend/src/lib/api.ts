@@ -261,6 +261,21 @@ export function fetchFeedDetail(feedName: string): Promise<FeedDetail> {
   return fetchJson(`/api/monitoring/feed-detail/${feedName}`);
 }
 
+// ─── Reconciliation Investigation API ─────────────────────────────
+
+export interface ReconInvestigation {
+  check: Row;
+  review_text: string;
+  model_used: string;
+  input_tokens: number;
+  output_tokens: number;
+  guardrails?: GuardrailVerdict;
+}
+
+export function investigateRecon(checkName: string): Promise<ReconInvestigation> {
+  return postJson('/api/monitoring/recon-investigate', { check_name: checkName });
+}
+
 // ─── Agent #3: DQ Triage API ──────────────────────────────────────────
 
 export interface DqTriageResponse {

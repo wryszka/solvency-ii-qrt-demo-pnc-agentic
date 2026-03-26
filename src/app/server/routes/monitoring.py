@@ -207,6 +207,110 @@ async def get_feed_detail(feed_name: str):
         raise HTTPException(500, str(exc)) from exc
 
 
+# ── Reconciliation Detail + AI Investigation ─────────────────────────────────
+
+@router.post("/recon-investigate")
+async def investigate_reconciliation(body: dict = {}):
+    """AI investigates a specific reconciliation mismatch."""
+    user = get_current_user()
+    check_name = body.get("check_name", "")
+
+    try:
+        # Get the specific check
+        where = f"WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn('5_mon_cross_qrt_reconciliation')})"
+        all_checks = await execute_query(f"""
+            SELECT * FROM {fqn('5_mon_cross_qrt_reconciliation')} {where}
+        """)
+
+        target_check = None
+        for c in all_checks:
+            if c.get("check_name") == check_name:
+                target_check = c
+                break
+
+        if not target_check:
+            target_check = all_checks[0] if all_checks else {}
+
+        reporting_period = target_check.get("reporting_period", "Unknown")
+
+        # Get relevant QRT summaries for context
+        summaries = {}
+        for table in ["3_qrt_s0602_summary", "3_qrt_s0501_summary", "3_qrt_s2501_summary", "3_qrt_s2606_summary"]:
+            try:
+                rows = await execute_query(f"""
+                    SELECT * FROM {fqn(table)}
+                    WHERE reporting_period = '{reporting_period}'
+                """)
+                summaries[table] = rows
+            except Exception:
+                summaries[table] = []
+
+        user_prompt = f"""Investigate this cross-QRT reconciliation issue for Bricksurance SE.
+Reporting period: {reporting_period}.
+
+## The Mismatch
+Check: {target_check.get('check_name', '?')}
+Description: {target_check.get('check_description', '?')}
+Source QRT: {target_check.get('source_qrt', '?')} — Value: {target_check.get('source_value', '?')}
+Target QRT: {target_check.get('target_qrt', '?')} — Value: {target_check.get('target_value', '?')}
+Difference: {target_check.get('difference', '?')}
+Tolerance: {target_check.get('tolerance', '?')}
+Status: {target_check.get('status', '?')}
+
+## All Reconciliation Checks (for context)
+{json.dumps(all_checks, indent=2, default=str)}
+
+## QRT Summaries
+{json.dumps(summaries, indent=2, default=str)}
+
+Explain WHY this mismatch exists. Consider:
+- Is it a data issue, a timing difference, a methodology difference, or expected?
+- Which specific numbers drive the gap?
+- Is this blocking for submission or acceptable with a note?
+- What remediation (if any) is needed?"""
+
+        system_prompt = """You are a senior actuarial analyst investigating a cross-QRT reconciliation issue.
+Explain the root cause of the mismatch in plain language. Be specific about which numbers don't match and why.
+Output in markdown: ## Root Cause, ## Impact Assessment, ## Recommendation."""
+
+        # Guardrails
+        input_verdict = validate_input(user_prompt, user)
+        if not input_verdict.passed:
+            status_code = 429 if input_verdict.rate_limited else 400
+            raise HTTPException(status_code, {"error": "Input guardrail failed", "guardrails": input_verdict.to_dict()})
+
+        result = await generate_review(system_prompt, user_prompt)
+        output_verdict = validate_output(result.text)
+        review_text = truncate_output(result.text)
+
+        return {
+            "check": target_check,
+            "review_text": review_text,
+            "model_used": result.model_used,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "guardrails": {
+                "passed": input_verdict.passed and output_verdict.passed,
+                "checks_run": input_verdict.checks_run + output_verdict.checks_run,
+                "checks_passed": input_verdict.checks_passed + output_verdict.checks_passed,
+                "checks_failed": input_verdict.checks_failed + output_verdict.checks_failed,
+                "warnings": input_verdict.warnings + output_verdict.warnings,
+                "failures": input_verdict.failures + output_verdict.failures,
+                "pii_flags": output_verdict.pii_flags,
+                "output_truncated": output_verdict.output_truncated,
+                "rate_limited": input_verdict.rate_limited,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Recon investigation failed")
+        raise HTTPException(500, f"Investigation failed: {str(exc)}") from exc
+
+
 # ── Agent #3: DQ Triage ─────────────────────────────────────────────────────
 
 @router.post("/dq-investigate")

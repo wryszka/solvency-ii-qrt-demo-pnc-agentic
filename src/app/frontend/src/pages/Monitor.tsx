@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, Activity, ShieldCheck, ArrowRight, Bot, Sparkles, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
-import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail } from '../lib/api';
+import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
 
 export default function Monitor() {
@@ -108,14 +108,7 @@ export default function Monitor() {
       <FeedStatusSection feeds={sla} />
 
       {/* Reconciliation Summary */}
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">Cross-QRT Reconciliation</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {recon.map((check) => (
-            <ReconCard key={check.check_name} check={check} />
-          ))}
-        </div>
-      </div>
+      <ReconSection checks={recon} />
 
       {/* Cross-QRT AI Consistency Review */}
       <CrossQrtReviewSection />
@@ -279,7 +272,10 @@ function FeedStatusSection({ feeds }: { feeds: Row[] }) {
 
   return (
     <div>
-      <h3 className="text-lg font-semibold text-gray-900 mb-3">Data Feed Status</h3>
+      <div className="flex items-center gap-3 mb-3">
+        <h3 className="text-lg font-semibold text-gray-900">Data Feed Status</h3>
+        <span className="text-[10px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Unity Catalog Data Quality Monitoring</span>
+      </div>
       <div className="grid gap-2">
         {feeds.map((feed) => (
           <div key={feed.feed_name}>
@@ -587,25 +583,151 @@ function FeedDetailPanel({ feedName }: { feedName: string }) {
   );
 }
 
-function ReconCard({ check }: { check: Row }) {
-  const isMatch = check.status === 'MATCH';
+function ReconSection({ checks }: { checks: Row[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
   return (
-    <div className={`rounded-lg border p-4 ${isMatch ? 'bg-white border-gray-200' : 'bg-red-50 border-red-200'}`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-semibold text-gray-900">{check.source_qrt} vs {check.target_qrt}</span>
-        <StatusBadge
-          label={check.status}
-          variant={isMatch ? 'success' : 'error'}
-        />
+    <div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-3">Cross-QRT Reconciliation</h3>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {checks.map((check) => (
+          <div key={check.check_name}>
+            <button
+              onClick={() => setExpanded(expanded === check.check_name ? null : check.check_name)}
+              className={`w-full text-left rounded-lg border p-4 transition-all hover:shadow-md ${
+                check.status === 'MATCH'
+                  ? expanded === check.check_name ? 'bg-white border-blue-300' : 'bg-white border-gray-200'
+                  : expanded === check.check_name ? 'bg-red-50 border-red-400' : 'bg-red-50 border-red-200'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-900">{check.source_qrt} vs {check.target_qrt}</span>
+                <div className="flex items-center gap-2">
+                  <StatusBadge label={check.status} variant={check.status === 'MATCH' ? 'success' : 'error'} />
+                  {expanded === check.check_name
+                    ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                    : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mb-2">{check.check_description}</p>
+              <div className="flex items-center gap-4 text-xs font-mono">
+                <span>Source: {formatEur(check.source_value)}</span>
+                <span>Target: {formatEur(check.target_value)}</span>
+                <span className={check.status === 'MATCH' ? 'text-green-600' : 'text-red-600'}>
+                  Diff: {formatEur(check.difference)}
+                </span>
+              </div>
+            </button>
+            {expanded === check.check_name && (
+              <ReconDetailPanel check={check} />
+            )}
+          </div>
+        ))}
       </div>
-      <p className="text-xs text-gray-500 mb-2">{check.check_description}</p>
-      <div className="flex items-center gap-4 text-xs font-mono">
-        <span>Source: {formatEur(check.source_value)}</span>
-        <span>Target: {formatEur(check.target_value)}</span>
-        <span className={isMatch ? 'text-green-600' : 'text-red-600'}>
-          Diff: {formatEur(check.difference)}
-        </span>
+    </div>
+  );
+}
+
+function ReconDetailPanel({ check }: { check: Row }) {
+  const [investigation, setInvestigation] = useState<ReconInvestigation | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const isMatch = check.status === 'MATCH';
+
+  useEffect(() => {
+    if (!loading) return;
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  async function handleInvestigate() {
+    setLoading(true);
+    setError(null);
+    setElapsed(0);
+    try {
+      const r = await investigateRecon(check.check_name);
+      setInvestigation(r);
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const tolerance = parseFloat(check.tolerance || '0');
+  const difference = parseFloat(check.difference || '0');
+  const utilizationPct = tolerance > 0 ? Math.min(100, Math.abs(difference) / tolerance * 100) : 0;
+
+  return (
+    <div className={`rounded-b-lg border border-t-0 p-4 ${isMatch ? 'border-gray-200 bg-gray-50' : 'border-red-200 bg-red-50/30'}`}>
+      {/* Detail metrics */}
+      <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className="bg-white rounded p-2.5 border border-gray-100">
+          <div className="text-[10px] text-gray-500 uppercase">Source Value</div>
+          <div className="text-sm font-mono font-semibold text-gray-900">{formatEur(check.source_value)}</div>
+          <div className="text-[10px] text-gray-400">{check.source_qrt}</div>
+        </div>
+        <div className="bg-white rounded p-2.5 border border-gray-100">
+          <div className="text-[10px] text-gray-500 uppercase">Target Value</div>
+          <div className="text-sm font-mono font-semibold text-gray-900">{formatEur(check.target_value)}</div>
+          <div className="text-[10px] text-gray-400">{check.target_qrt}</div>
+        </div>
+        <div className="bg-white rounded p-2.5 border border-gray-100">
+          <div className="text-[10px] text-gray-500 uppercase">Difference</div>
+          <div className={`text-sm font-mono font-semibold ${isMatch ? 'text-green-700' : 'text-red-700'}`}>{formatEur(check.difference)}</div>
+        </div>
+        <div className="bg-white rounded p-2.5 border border-gray-100">
+          <div className="text-[10px] text-gray-500 uppercase">Tolerance Used</div>
+          <div className="text-sm font-semibold text-gray-900">{utilizationPct.toFixed(0)}%</div>
+          <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${utilizationPct < 50 ? 'bg-green-400' : utilizationPct < 80 ? 'bg-amber-400' : 'bg-red-400'}`}
+              style={{ width: `${utilizationPct}%` }} />
+          </div>
+        </div>
       </div>
+
+      {/* AI Investigation */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
+      )}
+
+      {!investigation && !loading && (
+        <button
+          onClick={handleInvestigate}
+          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+            isMatch
+              ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              : 'bg-red-600 text-white hover:bg-red-700'
+          }`}
+        >
+          <Bot className="w-4 h-4" />
+          {isMatch ? 'Explain this match' : 'Investigate this mismatch with AI'}
+        </button>
+      )}
+
+      {loading && (
+        <div className="text-center py-4">
+          <Loader2 className="w-5 h-5 animate-spin text-blue-600 mx-auto" />
+          <p className="text-xs text-gray-500 mt-2">Investigating... ({elapsed}s)</p>
+        </div>
+      )}
+
+      {investigation && (
+        <div className="mt-2">
+          <div className="flex items-center gap-2 mb-2">
+            <Bot className="w-4 h-4 text-violet-600" />
+            <span className="text-xs font-semibold text-gray-700">AI Investigation</span>
+            <span className="text-[10px] text-gray-400">{investigation.model_used} | {investigation.input_tokens + investigation.output_tokens} tokens</span>
+          </div>
+          <div className="prose-sm max-w-none bg-white rounded-lg border border-gray-200 p-3"
+            dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(investigation.review_text) }}
+          />
+          <button onClick={handleInvestigate} className="mt-2 text-xs text-violet-600 hover:text-violet-700 font-medium">
+            Re-investigate
+          </button>
+        </div>
+      )}
     </div>
   );
 }
