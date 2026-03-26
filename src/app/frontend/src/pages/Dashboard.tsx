@@ -19,11 +19,12 @@ export default function Dashboard() {
   useEffect(() => {
     fetchEmbeds()
       .then((e) => {
-        // Build embed URL (for iframe) and direct URL (for new tab fallback)
-        const dashUrl = e.dashboard_url || '';
-        setDirectUrl(dashUrl.replace('/embed/dashboardsv3/', '/dashboardsv3/'));
-        // The embed URL needs to stay as /embed/ path
-        setEmbedUrl(dashUrl);
+        const host = e.dashboard_url?.split('/embed/')[0] || '';
+        const id = e.dashboard_id || '';
+        // Published embed URL (for iframe — works cross-origin when published with credentials)
+        setEmbedUrl(`${host}/embed/dashboardsv3/${id}?embed_credentials=true`);
+        // Direct link to the published dashboard (for "Open in Databricks")
+        setDirectUrl(`${host}/dashboardsv3/${id}/published`);
       })
       .catch(() => setEmbedError(true))
       .finally(() => setLoading(false));
