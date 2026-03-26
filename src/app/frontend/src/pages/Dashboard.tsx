@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, ExternalLink, BarChart3, PieChart, TrendingUp, Shield } from 'lucide-react';
+import { Loader2, ExternalLink, BarChart3, PieChart, TrendingUp, Shield, Maximize2, Minimize2 } from 'lucide-react';
 import { fetchEmbeds } from '../lib/api';
 
 const TABS = [
@@ -10,13 +10,22 @@ const TABS = [
 ];
 
 export default function Dashboard() {
-  const [url, setUrl] = useState<string | null>(null);
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+  const [directUrl, setDirectUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [embedError, setEmbedError] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
     fetchEmbeds()
-      .then((e) => setUrl(e.dashboard_url.replace('/embed/dashboardsv3/', '/dashboardsv3/')))
-      .catch(() => {})
+      .then((e) => {
+        // Build embed URL (for iframe) and direct URL (for new tab fallback)
+        const dashUrl = e.dashboard_url || '';
+        setDirectUrl(dashUrl.replace('/embed/dashboardsv3/', '/dashboardsv3/'));
+        // The embed URL needs to stay as /embed/ path
+        setEmbedUrl(dashUrl);
+      })
+      .catch(() => setEmbedError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -29,44 +38,67 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">QRT Comparison Dashboard</h2>
-        <p className="text-sm text-gray-500 mt-1">Quarterly comparison of regulatory templates across Q1–Q3 2025</p>
+    <div className={`${fullscreen ? 'fixed inset-0 z-50 bg-white' : 'max-w-6xl mx-auto p-6 space-y-4'}`}>
+      {/* Header */}
+      <div className={`flex items-center justify-between ${fullscreen ? 'px-4 py-2 border-b border-gray-200 bg-gray-50' : ''}`}>
+        <div>
+          <h2 className={`font-bold text-gray-900 ${fullscreen ? 'text-lg' : 'text-2xl'}`}>QRT Comparison Dashboard</h2>
+          {!fullscreen && (
+            <p className="text-sm text-gray-500 mt-1">
+              Quarterly comparison across Q1–Q3 2025
+              <span className="ml-2 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Databricks Lakeview</span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {directUrl && (
+            <a href={directUrl} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50">
+              <ExternalLink className="w-3.5 h-3.5" /> Open in Databricks
+            </a>
+          )}
+          <button onClick={() => setFullscreen(!fullscreen)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-md hover:bg-gray-50">
+            {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </button>
+        </div>
       </div>
 
-      {url && (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-between w-full p-5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors group"
-        >
-          <div>
-            <div className="text-lg font-semibold">Open Dashboard</div>
-            <div className="text-sm text-blue-200 mt-0.5">Opens the Lakeview dashboard in a new tab</div>
+      {/* Embedded dashboard */}
+      {embedUrl && !embedError ? (
+        <div className={`${fullscreen ? 'h-[calc(100vh-52px)]' : 'rounded-lg border border-gray-200 overflow-hidden'}`}
+          style={fullscreen ? {} : { height: '700px' }}>
+          <iframe
+            src={embedUrl}
+            className="w-full h-full border-0"
+            title="Lakeview Dashboard"
+            allow="fullscreen"
+            onError={() => setEmbedError(true)}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Fallback: link + tab descriptions */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+            The dashboard cannot be embedded from this domain. Use the "Open in Databricks" button above, or access it directly from the workspace.
           </div>
-          <ExternalLink className="w-6 h-6 text-blue-200 group-hover:text-white transition-colors" />
-        </a>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {TABS.map((t) => (
+              <div key={t.label} className="bg-white rounded-lg border border-gray-200 p-5 flex items-start gap-4">
+                <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0">
+                  <t.icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">{t.label}</h3>
+                  <p className="text-sm text-gray-500 mt-0.5">{t.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        {TABS.map((t) => (
-          <div key={t.label} className="bg-white rounded-lg border border-gray-200 p-5 flex items-start gap-4">
-            <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0">
-              <t.icon className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 text-sm">{t.label}</h3>
-              <p className="text-sm text-gray-500 mt-0.5">{t.desc}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="text-xs text-gray-400 italic">
-        Lakeview dashboards can be embedded directly in apps served from the workspace domain.
-        For portability, this demo links to the published dashboard in a new tab.
-      </p>
     </div>
   );
 }
