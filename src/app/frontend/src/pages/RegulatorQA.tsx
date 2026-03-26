@@ -114,8 +114,8 @@ export default function RegulatorQA() {
                 <p className="text-sm text-gray-500">Ask questions in plain English — click any example to start</p>
               </div>
 
-              {/* Two panes side by side */}
-              <div className="grid grid-cols-2 gap-4 max-w-2xl mx-auto">
+              {/* Two panes stacked */}
+              <div className="grid gap-4 max-w-2xl mx-auto">
                 {/* Left: Regulatory Chatbot (this page) */}
                 <div className="rounded-lg border-2 border-violet-200 bg-violet-50/30 p-4">
                   <div className="flex items-center gap-2 mb-3">
