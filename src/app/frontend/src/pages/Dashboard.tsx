@@ -43,7 +43,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className={`flex items-center justify-between ${fullscreen ? 'px-4 py-2 border-b border-gray-200 bg-gray-50' : ''}`}>
         <div>
-          <h2 className={`font-bold text-gray-900 ${fullscreen ? 'text-lg' : 'text-2xl'}`}>QRT Comparison Dashboard</h2>
+          <h2 className={`font-bold text-gray-900 ${fullscreen ? 'text-lg' : 'text-2xl'}`}>Visual Analytics</h2>
           {!fullscreen && (
             <p className="text-sm text-gray-500 mt-1">
               Quarterly comparison across Q1–Q3 2025

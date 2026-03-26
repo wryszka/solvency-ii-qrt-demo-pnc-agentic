@@ -40,9 +40,9 @@ function Nav() {
             <NavLink to="/monitor" icon={Activity} label="Monitor" />
             <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
             <NavLink to="/" icon={FileText} label="Reports" />
-            <NavLink to="/dashboard" icon={BarChart3} label="Dashboard" />
-            <NavLink to="/regulator-qa" icon={Bot} label="Regulator Q&A" />
-            <NavLink to="/genie" icon={MessageCircle} label="Ask Genie" />
+            <NavLink to="/dashboard" icon={BarChart3} label="Visual Analytics" />
+            <NavLink to="/genie" icon={MessageCircle} label="Query Data" />
+            <NavLink to="/regulator-qa" icon={Bot} label="AI Analyst" />
           </nav>
         </div>
         <div className="flex items-center gap-2 text-sm text-gray-400">

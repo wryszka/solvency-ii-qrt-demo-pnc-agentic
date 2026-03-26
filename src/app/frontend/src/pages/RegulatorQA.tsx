@@ -88,9 +88,10 @@ export default function RegulatorQA() {
     <div className="max-w-4xl mx-auto p-6 space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">Regulatory Q&A Agent</h2>
+        <h2 className="text-2xl font-bold text-gray-900">AI Analyst</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Ask questions about QRT data, draft regulator responses, prepare board briefings
+          Narrative analysis, regulator response drafting, board briefings
+          <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Foundation Model API</span>
         </p>
       </div>
 

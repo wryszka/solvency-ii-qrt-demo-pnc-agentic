@@ -35,9 +35,10 @@ export default function Genie() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">Ask Genie</h2>
+        <h2 className="text-2xl font-bold text-gray-900">Query Data</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Natural language questions about Bricksurance SE QRT data
+          Ask natural language questions — get tables and charts back
+          <span className="ml-2 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks AI/BI Genie</span>
         </p>
       </div>
 
@@ -49,8 +50,8 @@ export default function Genie() {
           className="flex items-center justify-between w-full p-5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors group"
         >
           <div>
-            <div className="text-lg font-semibold">Open Genie</div>
-            <div className="text-sm text-violet-200 mt-0.5">Ask questions about QRT data in a new tab</div>
+            <div className="text-lg font-semibold">Open Query Interface</div>
+            <div className="text-sm text-violet-200 mt-0.5">Ask questions — get SQL-powered tables and charts</div>
           </div>
           <ExternalLink className="w-6 h-6 text-violet-200 group-hover:text-white transition-colors" />
         </a>
