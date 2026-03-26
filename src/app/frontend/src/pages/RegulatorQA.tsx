@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Send, Bot, User, Shield, ChevronDown,
-  CheckCircle2, AlertTriangle, MessageSquare, Building2, Database,
+  CheckCircle2, AlertTriangle, MessageSquare, Database,
 } from 'lucide-react';
 import {
   fetchRegulatorExamples, askRegulatorQuestion, askGenie,
@@ -100,55 +100,29 @@ export default function RegulatorQA() {
         </p>
       </div>
 
-      {/* Chat area */}
-      <div className="bg-white rounded-lg border border-gray-200 flex flex-col" style={{ minHeight: '500px' }}>
+      {/* Regulatory Chatbot */}
+      <div className="bg-white rounded-lg border-2 border-violet-200 overflow-hidden">
+        <div className="px-4 py-3 bg-violet-50 border-b border-violet-200 flex items-center gap-2">
+          <Bot className="w-5 h-5 text-violet-600" />
+          <div>
+            <span className="text-sm font-bold text-violet-900">Regulatory Chatbot</span>
+            <span className="ml-2 text-[10px] text-violet-500">Writes analysis, letters, briefings</span>
+          </div>
+        </div>
+
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ maxHeight: '600px' }}>
+        <div className="overflow-y-auto p-4 space-y-3" style={{ maxHeight: '400px' }}>
           {messages.length === 0 && !loading && (
-            <div className="py-6">
-              <div className="text-center mb-6">
-                <div className="inline-flex p-3 bg-violet-100 rounded-full mb-3">
-                  <Bot className="w-8 h-8 text-violet-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Solvency II Regulatory Chatbot</h3>
-                <p className="text-sm text-gray-500">Ask questions in plain English — click any example to start</p>
-              </div>
-
-              {/* Two panes stacked */}
-              <div className="grid gap-4 max-w-2xl mx-auto">
-                {/* Left: Regulatory Chatbot (this page) */}
-                <div className="rounded-lg border-2 border-violet-200 bg-violet-50/30 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Bot className="w-5 h-5 text-violet-600" />
-                    <div>
-                      <div className="text-sm font-bold text-violet-900">Regulatory Chatbot</div>
-                      <div className="text-[10px] text-violet-500">Writes analysis, letters, briefings</div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {examples.map((cat) => (
-                      <div key={cat.category}>
-                        <h4 className="text-[10px] font-bold uppercase text-violet-400 tracking-wide mb-1.5">{cat.category}</h4>
-                        <div className="space-y-1">
-                          {cat.questions.map((q) => (
-                            <button
-                              key={q}
-                              onClick={() => handleSend(q)}
-                              className="w-full text-left px-2.5 py-1.5 rounded-md border border-violet-100 hover:border-violet-300 hover:bg-violet-100/50 text-xs text-gray-700 hover:text-violet-800 transition-colors flex items-start gap-1.5"
-                            >
-                              <MessageSquare className="w-3 h-3 text-violet-400 mt-0.5 shrink-0" />
-                              {q}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Right: Genie — interactive data queries */}
-                <GeniePane examples={genieExamples} />
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {examples.flatMap((cat) => cat.questions).map((q) => (
+                <button
+                  key={q}
+                  onClick={() => handleSend(q)}
+                  className="px-2.5 py-1.5 rounded-full border border-violet-100 hover:border-violet-300 hover:bg-violet-50 text-xs text-gray-600 hover:text-violet-800 transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           )}
 
@@ -170,41 +144,31 @@ export default function RegulatorQA() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="border-t border-gray-200 p-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              rows={1}
+        {/* Input inside the chatbot block */}
+        <div className="border-t border-violet-200 p-3 bg-violet-50/30">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about QRT data, draft a regulator response, prepare a board briefing..."
-              className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+              placeholder="Ask about QRT data, draft a regulator response..."
+              className="flex-1 border border-violet-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
               disabled={loading}
             />
             <button
               onClick={() => handleSend()}
               disabled={loading || !input.trim()}
-              className="p-2.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-            <div className="flex items-center gap-1">
-              <Shield className="w-3 h-3" />
-              <span>Guardrails active</span>
-            </div>
-            <span>|</span>
-            <div className="flex items-center gap-1">
-              <Building2 className="w-3 h-3" />
-              <span>Bricksurance SE</span>
-            </div>
-            <span>|</span>
-            <span>Enter to send, Shift+Enter for newline</span>
-          </div>
         </div>
       </div>
+
+      {/* Genie section */}
+      <GeniePane examples={genieExamples} />
     </div>
   );
 }

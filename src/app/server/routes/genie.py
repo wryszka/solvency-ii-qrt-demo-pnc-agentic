@@ -26,41 +26,49 @@ def _query_genie_sync(question: str) -> dict:
         content=question,
     )
 
-    # Extract text and query results from attachments
     texts = []
-    query = None
+    query_sql = None
     columns = []
     rows = []
 
     if response.attachments:
         for att in response.attachments:
+            # Text attachment
             if att.text:
-                texts.append(att.text.content)
+                try:
+                    texts.append(att.text.content)
+                except Exception:
+                    pass
+
+            # Query attachment — extract SQL and try to get results
             if att.query:
-                query = att.query.query
-                if att.query.columns:
-                    columns = [c.name for c in att.query.columns]
-                if att.query.result and att.query.result.row_count:
-                    # Try to get the data
-                    try:
-                        result = w.genie.get_message_query_result(
-                            space_id=space_id,
-                            conversation_id=response.conversation_id,
-                            message_id=response.id,
-                        )
-                        if result.statement_response and result.statement_response.result:
-                            data = result.statement_response.result.data_array
-                            if data:
-                                rows = [list(r) for r in data[:50]]  # Cap at 50 rows
-                    except Exception:
-                        pass
+                try:
+                    query_sql = getattr(att.query, 'query', None) or getattr(att.query, 'sql', None)
+                except Exception:
+                    pass
+
+                # Try to get the query result data
+                try:
+                    result = w.genie.get_message_query_result(
+                        space_id=space_id,
+                        conversation_id=response.conversation_id,
+                        message_id=response.id,
+                    )
+                    # Extract columns and rows from the statement response
+                    sr = result.statement_response
+                    if sr and sr.manifest and sr.manifest.schema and sr.manifest.schema.columns:
+                        columns = [c.name for c in sr.manifest.schema.columns]
+                    if sr and sr.result and sr.result.data_array:
+                        rows = [list(r) for r in sr.result.data_array[:50]]
+                except Exception as e:
+                    logger.debug("Could not get query result: %s", e)
 
     return {
-        "answer": "\n".join(texts) if texts else "Genie returned no text response.",
-        "sql": query,
+        "answer": "\n".join(texts) if texts else "Query executed successfully." if rows else "No response from Genie.",
+        "sql": query_sql,
         "columns": columns,
         "rows": rows,
-        "conversation_id": response.conversation_id,
+        "conversation_id": getattr(response, 'conversation_id', None),
     }
 
 
