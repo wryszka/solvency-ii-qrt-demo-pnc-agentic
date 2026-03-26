@@ -62,6 +62,7 @@ export default function Monitor() {
           <h2 className="text-2xl font-bold text-gray-900">Control Tower</h2>
           <p className="text-sm text-gray-500 mt-1">
             {period} Reporting Cycle — Bricksurance SE
+            <span className="ml-2 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Unity Catalog</span>
           </p>
         </div>
         <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
