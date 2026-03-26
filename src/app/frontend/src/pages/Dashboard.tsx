@@ -47,7 +47,7 @@ export default function Dashboard() {
           {!fullscreen && (
             <p className="text-sm text-gray-500 mt-1">
               Quarterly comparison across Q1–Q3 2025
-              <span className="ml-2 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Databricks Lakeview</span>
+              <span className="ml-2 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks AI/BI Dashboards</span>
             </p>
           )}
         </div>
