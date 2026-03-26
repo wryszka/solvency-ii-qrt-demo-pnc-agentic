@@ -38,7 +38,7 @@ export default function RegulatorQA() {
       })
       .catch((e) => console.error('Failed to fetch examples:', e));
     fetchEmbeds()
-      .then((e) => setGenieUrl(e.genie_url.replace('/embed/genie/spaces/', '/genie/spaces/')))
+      .then((e) => setGenieUrl(e.genie_url.replace('/embed/genie/spaces/', '/genie/rooms/')))
       .catch(() => {});
   }, []);
 
