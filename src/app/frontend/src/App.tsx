@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Building2, FileText, BarChart3, Activity, ShieldCheck, Bot, Code2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import Landing from './pages/Landing';
 import Monitor from './pages/Monitor';
 import ReportsList from './pages/ReportsList';
 import ReportDetail from './pages/ReportDetail';
@@ -11,7 +12,7 @@ import RegulatorQA from './pages/RegulatorQA';
 
 function NavLink({ to, icon: Icon, label }: { to: string; icon: React.ComponentType<{ className?: string }>; label: string }) {
   const { pathname } = useLocation();
-  const active = to === '/' ? pathname === '/' : pathname.startsWith(to);
+  const active = pathname === to || (to !== '/' && pathname.startsWith(to));
   return (
     <Link
       to={to}
@@ -40,7 +41,7 @@ function Nav() {
           <nav className="flex items-center gap-1 ml-4">
             <NavLink to="/monitor" icon={Activity} label="Monitor" />
             <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
-            <NavLink to="/" icon={FileText} label="Reports" />
+            <NavLink to="/reports" icon={FileText} label="Reports" />
             <NavLink to="/dashboard" icon={BarChart3} label="Dashboards" />
             <NavLink to="/regulator-qa" icon={Bot} label="Regulatory AI" />
           </nav>
@@ -80,7 +81,8 @@ export default function App() {
         <Nav />
         <main>
           <Routes>
-            <Route path="/" element={<ReportsList />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/reports" element={<ReportsList />} />
             <Route path="/monitor" element={<Monitor />} />
             <Route path="/report/:qrtId" element={<ReportDetail />} />
             <Route path="/data-quality" element={<DataQuality />} />
