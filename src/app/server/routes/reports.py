@@ -424,97 +424,91 @@ async def get_content(
 
 # ── Data quality checks ──────────────────────────────────────────────────────
 
+# DQ checks that mirror the exact DLT pipeline expectations
+# Each entry: (check_name, table_fqn_key, constraint_desc, fail_sql, severity)
+DQ_CHECKS = {
+    "s0602": [
+        # Silver: 2_stg_assets_enriched
+        ("asset_id_not_null", "2_stg_assets_enriched", "asset_id IS NOT NULL", "asset_id IS NULL", "DROP ROW"),
+        ("sii_value_positive", "2_stg_assets_enriched", "sii_value > 0", "CAST(sii_value AS DOUBLE) <= 0", "FAIL UPDATE"),
+        ("cic_code_valid", "2_stg_assets_enriched", "LENGTH(cic_code) = 4", "LENGTH(cic_code) != 4", "DROP ROW"),
+        ("currency_not_null", "2_stg_assets_enriched", "currency IS NOT NULL", "currency IS NULL", "DROP ROW"),
+        # Gold: 3_qrt_s0602_list_of_assets
+        ("c0040_asset_id_present", "3_qrt_s0602_list_of_assets", "C0040_Asset_ID IS NOT NULL", "C0040_Asset_ID IS NULL", "DROP ROW"),
+        ("c0170_sii_positive", "3_qrt_s0602_list_of_assets", "C0170_Total_Solvency_II_Amount > 0", "CAST(C0170_Total_Solvency_II_Amount AS DOUBLE) <= 0", "FAIL UPDATE"),
+        ("c0270_cic_present", "3_qrt_s0602_list_of_assets", "C0270_CIC IS NOT NULL", "C0270_CIC IS NULL", "DROP ROW"),
+        # Gold: 3_qrt_s0602_summary
+        ("total_sii_positive", "3_qrt_s0602_summary", "total_sii_amount > 0", "CAST(total_sii_amount AS DOUBLE) <= 0", "FAIL UPDATE"),
+    ],
+    "s0501": [
+        # Silver: 2_stg_premiums_by_lob
+        ("gross_written_positive", "2_stg_premiums_by_lob", "gross_written_premium > 0", "CAST(gross_written_premium AS DOUBLE) <= 0", "DROP ROW"),
+        ("net_equals_gross_minus_ri", "2_stg_premiums_by_lob", "ABS(net - (gross - ri)) < 1.0", "ABS(CAST(net_written_premium AS DOUBLE) - (CAST(gross_written_premium AS DOUBLE) - CAST(reinsurers_share_written AS DOUBLE))) >= 1.0", "WARN"),
+        # Silver: 2_stg_claims_by_lob
+        ("gross_incurred_positive", "2_stg_claims_by_lob", "gross_incurred > 0", "CAST(gross_incurred AS DOUBLE) <= 0", "DROP ROW"),
+        ("net_leq_gross", "2_stg_claims_by_lob", "net_incurred <= gross_incurred + 1.0", "CAST(net_incurred AS DOUBLE) > CAST(gross_incurred AS DOUBLE) + 1.0", "WARN"),
+        # Silver: 2_stg_expenses_by_lob
+        ("total_expenses_positive", "2_stg_expenses_by_lob", "total_expenses > 0", "CAST(total_expenses AS DOUBLE) <= 0", "DROP ROW"),
+        # Gold: 3_qrt_s0501_premiums_claims_expenses
+        ("row_id_present", "3_qrt_s0501_premiums_claims_expenses", "template_row_id IS NOT NULL", "template_row_id IS NULL", "DROP ROW"),
+        ("amount_not_null", "3_qrt_s0501_premiums_claims_expenses", "amount_eur IS NOT NULL", "amount_eur IS NULL", "DROP ROW"),
+        # Gold: 3_qrt_s0501_summary
+        ("combined_ratio_realistic", "3_qrt_s0501_summary", "combined_ratio_pct BETWEEN 50 AND 200", "combined_ratio_pct NOT BETWEEN 50 AND 200", "DROP ROW"),
+    ],
+    "s2501": [
+        # Gold: 3_qrt_s2501_scr_breakdown
+        ("row_id_present", "3_qrt_s2501_scr_breakdown", "template_row_id IS NOT NULL", "template_row_id IS NULL", "DROP ROW"),
+        ("amount_not_null", "3_qrt_s2501_scr_breakdown", "amount_eur IS NOT NULL", "amount_eur IS NULL", "DROP ROW"),
+        # Gold: 3_qrt_s2501_summary
+        ("solvency_ratio_positive", "3_qrt_s2501_summary", "solvency_ratio_pct > 0", "CAST(solvency_ratio_pct AS DOUBLE) <= 0", "FAIL UPDATE"),
+        ("scr_positive", "3_qrt_s2501_summary", "scr_eur > 0", "CAST(scr_eur AS DOUBLE) <= 0", "FAIL UPDATE"),
+    ],
+    "s2606": [
+        # Silver: 2_stg_cat_risk_by_lob
+        ("var_net_positive", "2_stg_cat_risk_by_lob", "var_net_eur > 0", "CAST(var_net_eur AS DOUBLE) <= 0", "DROP ROW"),
+        ("tvar_gte_var", "2_stg_cat_risk_by_lob", "tvar_net_eur >= var_net_eur", "CAST(tvar_net_eur AS DOUBLE) < CAST(var_net_eur AS DOUBLE)", "DROP ROW"),
+        # Silver: 2_stg_premium_reserve_risk
+        ("volume_positive", "2_stg_premium_reserve_risk", "volume_measure_eur > 0", "CAST(volume_measure_eur AS DOUBLE) <= 0", "DROP ROW"),
+        ("premium_risk_positive", "2_stg_premium_reserve_risk", "premium_risk_eur >= 0", "CAST(premium_risk_eur AS DOUBLE) < 0", "DROP ROW"),
+        ("reserve_risk_positive", "2_stg_premium_reserve_risk", "reserve_risk_eur >= 0", "CAST(reserve_risk_eur AS DOUBLE) < 0", "DROP ROW"),
+        # Gold: 3_qrt_s2606_nl_uw_risk
+        ("row_id_present", "3_qrt_s2606_nl_uw_risk", "template_row_id IS NOT NULL", "template_row_id IS NULL", "DROP ROW"),
+        ("amount_not_null", "3_qrt_s2606_nl_uw_risk", "amount_eur IS NOT NULL", "amount_eur IS NULL", "DROP ROW"),
+        # Gold: 3_qrt_s2606_summary
+        ("total_nl_uw_positive", "3_qrt_s2606_summary", "total_nl_uw_scr > 0", "CAST(total_nl_uw_scr AS DOUBLE) <= 0", "FAIL UPDATE"),
+    ],
+}
+
+
 @router.get("/{qrt_id}/quality")
 async def get_quality(qrt_id: str, period: str = Query(None)):
     if qrt_id not in QRT_DEFS:
         raise HTTPException(404, "Unknown QRT")
 
     try:
+        check_defs = DQ_CHECKS.get(qrt_id, [])
         checks = []
 
-        if qrt_id == "s0602":
-            table = fqn("3_qrt_s0602_list_of_assets")
-            pw = f"AND reporting_period = '{period}'" if period else ""
+        for check_name, table_key, constraint, fail_sql, severity in check_defs:
+            try:
+                table = fqn(table_key)
+                pw = f"AND reporting_period = '{period}'" if period else ""
+                total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}")
+                total = int(total_r[0]["c"]) if total_r else 0
+                fail_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE {fail_sql} {pw}")
+                failing = int(fail_r[0]["c"]) if fail_r else 0
+            except Exception:
+                total = 0
+                failing = 0
 
-            total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}")
-            total = int(total_r[0]["c"])
-
-            null_id = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE C0040_Asset_ID IS NULL {pw}")
-            checks.append({"check": "Asset ID not null", "constraint": "C0040_Asset_ID IS NOT NULL",
-                           "total": total, "failing": int(null_id[0]["c"]), "severity": "DROP ROW"})
-
-            neg_sii = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE CAST(C0170_Total_Solvency_II_Amount AS DOUBLE) <= 0 {pw}")
-            checks.append({"check": "SII value positive", "constraint": "C0170 > 0",
-                           "total": total, "failing": int(neg_sii[0]["c"]), "severity": "DROP ROW"})
-
-            bad_cic = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE LENGTH(C0270_CIC) != 4 {pw}")
-            checks.append({"check": "CIC code valid (4 chars)", "constraint": "LENGTH(C0270_CIC) = 4",
-                           "total": total, "failing": int(bad_cic[0]["c"]), "severity": "DROP ROW"})
-
-            null_ccy = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE C0260_Currency IS NULL {pw}")
-            checks.append({"check": "Currency not null", "constraint": "C0260_Currency IS NOT NULL",
-                           "total": total, "failing": int(null_ccy[0]["c"]), "severity": "DROP ROW"})
-
-        elif qrt_id == "s0501":
-            table = fqn("3_qrt_s0501_premiums_claims_expenses")
-            pw = f"AND reporting_period = '{period}'" if period else ""
-
-            total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}")
-            total = int(total_r[0]["c"])
-
-            null_amt = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE amount_eur IS NULL {pw}")
-            checks.append({"check": "Amount not null", "constraint": "amount_eur IS NOT NULL",
-                           "total": total, "failing": int(null_amt[0]["c"]), "severity": "DROP ROW"})
-
-            null_row = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE template_row_id IS NULL {pw}")
-            checks.append({"check": "Template row ID present", "constraint": "template_row_id IS NOT NULL",
-                           "total": total, "failing": int(null_row[0]["c"]), "severity": "DROP ROW"})
-
-            # Check summary ratios
-            summary = fqn("3_qrt_s0501_summary")
-            bad_ratio = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE combined_ratio_pct NOT BETWEEN 50 AND 200")
-            total_summary = await execute_query(f"SELECT COUNT(*) AS c FROM {summary}")
-            checks.append({"check": "Combined ratio realistic (50-200%)", "constraint": "combined_ratio BETWEEN 50 AND 200",
-                           "total": int(total_summary[0]["c"]), "failing": int(bad_ratio[0]["c"]), "severity": "DROP ROW"})
-
-        elif qrt_id == "s2501":
-            summary = fqn("3_qrt_s2501_summary")
-
-            total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {summary}")
-            total = int(total_r[0]["c"])
-
-            neg_scr = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE scr_eur <= 0")
-            checks.append({"check": "SCR positive", "constraint": "scr_eur > 0",
-                           "total": total, "failing": int(neg_scr[0]["c"]), "severity": "FAIL UPDATE"})
-
-            low_ratio = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE solvency_ratio_pct <= 0")
-            checks.append({"check": "Solvency ratio positive", "constraint": "solvency_ratio_pct > 0",
-                           "total": total, "failing": int(low_ratio[0]["c"]), "severity": "FAIL UPDATE"})
-
-            # Model version check
-            model_r = await execute_query(f"SELECT DISTINCT model_version FROM {summary}")
-            checks.append({"check": "Model version consistent", "constraint": "Single model version used",
-                           "total": total, "failing": 0 if len(model_r) <= 1 else len(model_r) - 1,
-                           "severity": "WARNING"})
-
-        elif qrt_id == "s2606":
-            summary = fqn("3_qrt_s2606_summary")
-            total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {summary}")
-            total = int(total_r[0]["c"]) if total_r else 0
-
-            neg_scr = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE total_nl_uw_scr <= 0")
-            checks.append({"check": "NL UW SCR positive", "constraint": "total_nl_uw_scr > 0",
-                           "total": total, "failing": int(neg_scr[0]["c"]) if neg_scr else 0, "severity": "FAIL UPDATE"})
-
-            # Cat risk should be less than total (diversification)
-            bad_cat = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE cat_risk_var_eur > total_nl_uw_scr")
-            checks.append({"check": "Cat risk < total (diversification)", "constraint": "cat_risk_var < total_nl_uw_scr",
-                           "total": total, "failing": int(bad_cat[0]["c"]) if bad_cat else 0, "severity": "WARNING"})
-
-            # Premium risk positive
-            neg_prem = await execute_query(f"SELECT COUNT(*) AS c FROM {summary} WHERE premium_risk_eur <= 0")
-            checks.append({"check": "Premium risk positive", "constraint": "premium_risk_eur > 0",
-                           "total": total, "failing": int(neg_prem[0]["c"]) if neg_prem else 0, "severity": "FAIL UPDATE"})
+            checks.append({
+                "check": check_name,
+                "constraint": constraint,
+                "table": table_key,
+                "total": total,
+                "failing": failing,
+                "severity": severity,
+            })
 
         for c in checks:
             c["passing"] = c["total"] - c["failing"]
@@ -974,7 +968,7 @@ async def generate_ai_review(qrt_id: str):
             })
 
         # Call the Foundation Model
-        result = await generate_review(SYSTEM_PROMPT, user_prompt)
+        result = await generate_review(SYSTEM_PROMPT, user_prompt, agent_name="actuarial_review")
 
         # ── POST-CALL GUARDRAILS ──
         output_verdict = validate_output(result.text)
@@ -1138,7 +1132,7 @@ async def cross_qrt_consistency_review():
                 "guardrails": input_verdict.to_dict(),
             })
 
-        result = await generate_review(CROSS_QRT_SYSTEM, user_prompt)
+        result = await generate_review(CROSS_QRT_SYSTEM, user_prompt, agent_name="cross_qrt_consistency")
         output_verdict = validate_output(result.text)
         review_text = truncate_output(result.text)
 
@@ -1255,7 +1249,7 @@ async def stochastic_engine_review():
                 "guardrails": input_verdict.to_dict(),
             })
 
-        result = await generate_review(STOCHASTIC_ENGINE_SYSTEM, user_prompt)
+        result = await generate_review(STOCHASTIC_ENGINE_SYSTEM, user_prompt, agent_name="stochastic_engine")
         output_verdict = validate_output(result.text)
         review_text = truncate_output(result.text)
 

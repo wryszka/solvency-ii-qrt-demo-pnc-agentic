@@ -279,7 +279,7 @@ Output in markdown: ## Root Cause, ## Impact Assessment, ## Recommendation."""
             status_code = 429 if input_verdict.rate_limited else 400
             raise HTTPException(status_code, {"error": "Input guardrail failed", "guardrails": input_verdict.to_dict()})
 
-        result = await generate_review(system_prompt, user_prompt)
+        result = await generate_review(system_prompt, user_prompt, agent_name="recon_investigate")
         output_verdict = validate_output(result.text)
         review_text = truncate_output(result.text)
 
@@ -368,7 +368,7 @@ async def investigate_dq_failures():
             status_code = 429 if input_verdict.rate_limited else 400
             raise HTTPException(status_code, {"error": "Input guardrail failed", "guardrails": input_verdict.to_dict()})
 
-        result = await generate_review(DQ_TRIAGE_SYSTEM, user_prompt)
+        result = await generate_review(DQ_TRIAGE_SYSTEM, user_prompt, agent_name="dq_triage")
         output_verdict = validate_output(result.text)
         review_text = truncate_output(result.text)
 

@@ -10,3 +10,7 @@ env:
     value: "01f128f6dc951605aca6caa3ec26edb3"
   - name: GENIE_SPACE_ID
     value: "01f128fe84201b87ae7c04614b375d6c"
+  - name: AI_GATEWAY_ENDPOINT
+    value: ""
+  - name: MLFLOW_TRACKING_URI
+    value: "databricks"

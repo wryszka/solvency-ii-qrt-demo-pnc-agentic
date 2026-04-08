@@ -155,7 +155,7 @@ async def ask_question(req: QuestionRequest):
             })
 
         # Call LLM
-        result = await generate_review(REGULATOR_QA_SYSTEM, user_prompt)
+        result = await generate_review(REGULATOR_QA_SYSTEM, user_prompt, agent_name="regulator_qa")
 
         # Output guardrails
         output_verdict = validate_output(result.text)
