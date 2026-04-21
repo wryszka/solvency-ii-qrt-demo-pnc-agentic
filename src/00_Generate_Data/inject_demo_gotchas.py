@@ -14,6 +14,7 @@
 # MAGIC | 2 | Reinsurance cession rate quietly dropped | S.05.01 premiums | "Net exposure increased — cession dropped from 30% to 18%" |
 # MAGIC | 3 | Asset duration vs market risk mismatch | S.06.02 + S.25.01 | "Implied sensitivity 65% higher than duration suggests" |
 # MAGIC | 4 | Stochastic tail too thin for windstorm | S.26.06 igloo results | "TVaR/VaR ratio of 1.15 — expected 1.5-2.0 for windstorm" |
+# MAGIC | 5 | Custodian migration breaks 4 asset CIC codes | S.06.02 assets | "4 assets with null CICs — all from Euroclear. Likely custodian migration." |
 # MAGIC
 # MAGIC **Run this ONCE after the initial data generation, before the demo.**
 
@@ -191,15 +192,60 @@ for _, r in ratios.iterrows():
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Gotcha 5: Custodian Migration Breaks 4 Asset Records
+# MAGIC
+# MAGIC Simcorp migrated a batch of asset custodians last week. The custodian feed
+# MAGIC arrived but 4 assets now have null CIC codes — the migration didn't carry
+# MAGIC through the asset classification properly.
+# MAGIC
+# MAGIC The DLT expectation `cic_code_valid` will quarantine these 4 rows.
+# MAGIC The Data Quality dashboard will show 4 failing records.
+# MAGIC The DQ Triage agent should hypothesise the custodian migration as the cause.
+
+# COMMAND ----------
+
+# Null out CIC codes on 4 specific assets all from the same custodian
+spark.sql(f"""
+    UPDATE {fqn('1_raw_assets')}
+    SET cic_code = NULL,
+        custodian_name = 'Euroclear Bank SA/NV (migrated)'
+    WHERE asset_id IN (
+        SELECT asset_id FROM {fqn('1_raw_assets')}
+        WHERE reporting_period = '{period}'
+          AND custodian_name = 'Euroclear Bank SA/NV'
+        ORDER BY asset_id
+        LIMIT 4
+    )
+    AND reporting_period = '{period}'
+""")
+
+# Verify
+affected = spark.sql(f"""
+    SELECT asset_id, asset_name, custodian_name, cic_code
+    FROM {fqn('1_raw_assets')}
+    WHERE reporting_period = '{period}'
+      AND cic_code IS NULL
+""").toPandas()
+
+print(f"  Gotcha 5: Nulled CIC code on {len(affected)} assets from migrated custodian")
+for _, r in affected.iterrows():
+    print(f"     {r['asset_id']}: {str(r['asset_name'])[:50]} | custodian: {r['custodian_name']}")
+print("  -> DLT expectation cic_code_valid will quarantine these rows")
+print("  -> DQ Triage agent should identify the custodian migration pattern")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Summary
 # MAGIC
-# MAGIC Four gotchas injected. Now re-run the QRT pipelines to propagate changes:
+# MAGIC Five gotchas injected. Now re-run the QRT pipelines to propagate changes:
 # MAGIC
-# MAGIC 1. S.05.01 pipeline — will pick up the large claim + changed cession rates
-# MAGIC 2. S.25.01 pipeline — SCR unchanged, but now inconsistent with duration
-# MAGIC 3. S.26.06 pipeline — will pick up the thin windstorm tail
+# MAGIC 1. S.06.02 pipeline — will quarantine 4 assets with null CICs
+# MAGIC 2. S.05.01 pipeline — will pick up the large claim + changed cession rates
+# MAGIC 3. S.25.01 pipeline — SCR unchanged, but now inconsistent with duration
+# MAGIC 4. S.26.06 pipeline — will pick up the thin windstorm tail
 # MAGIC
-# MAGIC Then demo the AI agents — they should flag all 4 issues.
+# MAGIC Then demo the AI agents — they should flag all 5 issues.
 # MAGIC
 # MAGIC **Expected AI findings:**
 # MAGIC
@@ -209,3 +255,4 @@ for _, r in ratios.iterrows():
 # MAGIC | **Actuarial Review (S.05.01)** | "Net premium for Property up 18% while gross up only 3% — reinsurance cession rate appears to have changed from 30% to 18%." |
 # MAGIC | **Cross-QRT Consistency** | "Gov bond duration of 3.2 years implies DV01 of EUR ~125M, but market risk charge of EUR 200M implies significantly higher sensitivity." |
 # MAGIC | **Stochastic Engine** | "Windstorm TVaR/VaR ratio of 1.12x at 1-in-200 is abnormally thin. Expected 1.5-2.0x for European windstorm. Possible convergence issue or tail truncation." |
+# MAGIC | **DQ Triage** | "4 assets with null CIC codes — all from the same custodian (Euroclear). Likely custodian migration last week — re-request feed with proper CIC mapping." |

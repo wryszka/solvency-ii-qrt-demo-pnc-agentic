@@ -1453,6 +1453,78 @@ function StochasticEngineTab() {
         </div>
       </div>
 
+      {/* Cycle time comparison */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+          <Clock className="w-4 h-4 text-gray-600" />
+          <h3 className="text-sm font-semibold text-gray-900">End-to-end cycle time</h3>
+          <span className="text-[10px] font-medium text-gray-500 bg-white px-2 py-0.5 rounded-full uppercase tracking-wide ml-auto">vs traditional process</span>
+        </div>
+        <div className="grid grid-cols-2 divide-x divide-gray-200">
+          {/* Traditional */}
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-gray-500">Traditional cycle</span>
+              <span className="text-2xl font-bold text-red-600">~48h</span>
+            </div>
+            <div className="space-y-1.5 text-xs text-gray-600">
+              <div className="flex items-start gap-2">
+                <span className="text-red-400 font-mono">~6h</span>
+                <span>Extract exposures from policy admin → Excel → CSV</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-red-400 font-mono">~2h</span>
+                <span>Manual transformation, format conversion, reconciliation</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-red-400 font-mono">~30h</span>
+                <span>Engine runs overnight (often fails silently, restart next day)</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-red-400 font-mono">~6h</span>
+                <span>Export results, transform, reimport, reconcile differences</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-red-400 font-mono">~4h</span>
+                <span>Manual validation, "why doesn't this match" calls</span>
+              </div>
+            </div>
+          </div>
+          {/* Databricks */}
+          <div className="p-5 bg-gradient-to-br from-green-50/50 to-white">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-green-700">On Databricks</span>
+              <span className="text-2xl font-bold text-green-700">~3h</span>
+            </div>
+            <div className="space-y-1.5 text-xs text-gray-600">
+              <div className="flex items-start gap-2">
+                <span className="text-green-600 font-mono">~2min</span>
+                <span>Exposures already in Unity Catalog — direct export to UC Volume</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-green-600 font-mono">~2.5h</span>
+                <span>Engine reads from volume mount, runs simulations</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-green-600 font-mono">~2min</span>
+                <span>Results imported via DLT — no CSV juggling</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-green-600 font-mono">~20min</span>
+                <span>DQ expectations validate automatically, AI reviews output</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-green-600 font-mono">~5min</span>
+                <span>Approval with full lineage — no reconciliation calls</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-2.5 bg-green-50 border-t border-green-200 text-xs text-green-800">
+          <span className="font-semibold">~16x faster.</span> The bottleneck wasn't compute — it was data movement, format conversion, and human reconciliation. Removing them shrinks the cycle dramatically.
+        </div>
+      </div>
+
       {/* AI Review */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="px-5 py-4 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-gray-200">
