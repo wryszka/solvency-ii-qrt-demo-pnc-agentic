@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Building2, FileText, BarChart3, Activity, ShieldCheck, Bot, Code2 } from 'lucide-react';
+import { Building2, FileText, BarChart3, Activity, ShieldCheck, Bot, Code2, Home } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Landing from './pages/Landing';
 import Monitor from './pages/Monitor';
@@ -16,43 +16,47 @@ function NavLink({ to, icon: Icon, label }: { to: string; icon: React.ComponentT
   return (
     <Link
       to={to}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
         active ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
       }`}
     >
-      <Icon className="w-4 h-4" />
-      {label}
+      <Icon className="w-4 h-4 shrink-0" />
+      <span className="truncate">{label}</span>
     </Link>
   );
 }
 
-function Nav() {
+function Sidebar() {
   return (
-    <header className="bg-[#1e293b] text-white">
-      <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link to="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
-            <FileText className="w-6 h-6 text-blue-400" />
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">Solvency II</h1>
-              <p className="text-xs text-gray-400">Reporting & Approval Dashboard</p>
-            </div>
-          </Link>
-          <nav className="flex items-center gap-1 ml-4">
-            <NavLink to="/monitor" icon={Activity} label="Monitor" />
-            <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
-            <NavLink to="/reports" icon={FileText} label="Reports" />
-            <NavLink to="/dashboard" icon={BarChart3} label="Dashboards" />
-            <NavLink to="/regulator-qa" icon={Bot} label="Regulatory AI" />
-          </nav>
+    <aside className="fixed left-0 top-0 bottom-0 w-56 bg-[#1e293b] text-white flex flex-col">
+      {/* Brand */}
+      <Link to="/" className="flex items-center gap-3 px-4 py-4 border-b border-white/10 hover:opacity-90 transition-opacity">
+        <FileText className="w-6 h-6 text-blue-400 shrink-0" />
+        <div className="min-w-0">
+          <h1 className="text-base font-bold tracking-tight truncate">Solvency II</h1>
+          <p className="text-[10px] text-gray-400 truncate">Reporting & Approval</p>
         </div>
-        <div className="flex items-center gap-3 text-sm text-gray-400">
-          <Building2 className="w-4 h-4" />
-          <span className="font-medium text-gray-300">Bricksurance SE</span>
-          <BackstageLink />
+      </Link>
+
+      {/* Nav links */}
+      <nav className="flex-1 flex flex-col gap-1 p-2 overflow-y-auto">
+        <NavLink to="/" icon={Home} label="Home" />
+        <NavLink to="/monitor" icon={Activity} label="Monitor" />
+        <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
+        <NavLink to="/reports" icon={FileText} label="Reports" />
+        <NavLink to="/dashboard" icon={BarChart3} label="Dashboards" />
+        <NavLink to="/regulator-qa" icon={Bot} label="Regulatory AI" />
+      </nav>
+
+      {/* Footer — entity + backstage */}
+      <div className="border-t border-white/10 p-3 flex items-center justify-between text-xs text-gray-400">
+        <div className="flex items-center gap-2 min-w-0">
+          <Building2 className="w-3.5 h-3.5 shrink-0" />
+          <span className="font-medium text-gray-300 truncate">Bricksurance SE</span>
         </div>
+        <BackstageLink />
       </div>
-    </header>
+    </aside>
   );
 }
 
@@ -78,8 +82,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-gray-100 font-[system-ui]">
-        <Nav />
-        <main>
+        <Sidebar />
+        <main className="ml-56">
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/reports" element={<ReportsList />} />
