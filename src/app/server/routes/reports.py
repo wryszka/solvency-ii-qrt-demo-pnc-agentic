@@ -1283,3 +1283,396 @@ async def stochastic_engine_review():
     except Exception as exc:
         logger.exception("Stochastic engine review failed")
         raise HTTPException(500, f"Stochastic engine review failed: {str(exc)}") from exc
+
+
+# ── Governance Log ──────────────────────────────────────────────────────────
+
+async def _gather_governance_data(qrt_id: str) -> dict:
+    """Gather everything needed for the governance log."""
+    defn = QRT_DEFS[qrt_id]
+    summary_table = defn["summary_table"]
+    pipeline_name = defn["pipeline"]
+
+    # Latest reporting period
+    summaries = await execute_query(
+        f"SELECT * FROM {fqn(summary_table)} ORDER BY reporting_period DESC LIMIT 1"
+    )
+    summary = summaries[0] if summaries else {}
+    reporting_period = summary.get("reporting_period", "Unknown")
+
+    # SLA / pipeline arrival evidence (filter by pipeline name)
+    try:
+        sla_rows = await execute_query(f"""
+            SELECT * FROM {fqn('5_mon_pipeline_sla_status')}
+            WHERE reporting_period = '{reporting_period}'
+        """)
+    except Exception:
+        sla_rows = []
+
+    # DQ expectation results
+    try:
+        dq_rows = await execute_query(f"""
+            SELECT * FROM {fqn('5_mon_dq_expectation_results')}
+            WHERE pipeline_name LIKE '%{pipeline_name}%'
+            AND reporting_period = '{reporting_period}'
+            ORDER BY table_name, expectation_name
+        """)
+    except Exception:
+        dq_rows = []
+
+    # Cross-QRT reconciliation
+    try:
+        recon_rows = await execute_query(f"""
+            SELECT * FROM {fqn('5_mon_cross_qrt_reconciliation')}
+            WHERE reporting_period = '{reporting_period}'
+            AND (source_qrt = '{defn['name']}' OR target_qrt = '{defn['name']}')
+        """)
+    except Exception:
+        recon_rows = []
+
+    # Model governance (S.25.01 only)
+    model_rows = []
+    if qrt_id == "s2501":
+        try:
+            model_rows = await execute_query(f"""
+                SELECT * FROM {fqn('5_mon_model_registry_log')}
+                WHERE reporting_period = '{reporting_period}'
+            """)
+        except Exception:
+            pass
+
+    # AI reviews
+    try:
+        ai_rows = await execute_query(f"""
+            SELECT review_id, qrt_id, reporting_period, model_used,
+                   input_tokens, output_tokens, created_at, created_by
+            FROM {fqn('6_ai_reviews')}
+            WHERE qrt_id = '{qrt_id}'
+            AND reporting_period = '{reporting_period}'
+            ORDER BY created_at DESC
+            LIMIT 5
+        """)
+    except Exception:
+        ai_rows = []
+
+    # Approval workflow
+    try:
+        approval_rows = await execute_query(f"""
+            SELECT * FROM {fqn('6_ai_approvals')}
+            WHERE qrt_id = '{qrt_id}'
+            AND reporting_period = '{reporting_period}'
+            ORDER BY submitted_at DESC
+            LIMIT 1
+        """)
+    except Exception:
+        approval_rows = []
+
+    # Final QRT row count
+    try:
+        count_r = await execute_query(
+            f"SELECT COUNT(*) AS c FROM {fqn(defn['table'])} WHERE reporting_period = '{reporting_period}'"
+        )
+        final_row_count = int(count_r[0]["c"]) if count_r else 0
+    except Exception:
+        final_row_count = 0
+
+    return {
+        "qrt_id": qrt_id,
+        "qrt_name": defn["name"],
+        "qrt_title": defn["title"],
+        "reporting_period": reporting_period,
+        "pipeline_name": pipeline_name,
+        "summary_table": summary_table,
+        "final_table": defn["table"],
+        "final_row_count": final_row_count,
+        "summary": summary,
+        "sla_rows": sla_rows,
+        "dq_rows": dq_rows,
+        "recon_rows": recon_rows,
+        "model_rows": model_rows,
+        "ai_rows": ai_rows,
+        "approval": approval_rows[0] if approval_rows else None,
+    }
+
+
+def _render_governance_pdf(data: dict, generated_by: str) -> bytes:
+    """Render the governance log as a PDF."""
+    from fpdf import FPDF
+    import hashlib
+
+    qrt_name = data["qrt_name"]
+    qrt_title = data["qrt_title"]
+    period = data["reporting_period"]
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # Compute integrity hash
+    hash_input = f"{data['qrt_id']}:{period}:{data['final_row_count']}:{json.dumps(data['summary'], default=str, sort_keys=True)}"
+    data_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    def section_header(text):
+        pdf.ln(2)
+        pdf.set_fill_color(30, 41, 59)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 7, f"  {text}", new_x="LMARGIN", new_y="NEXT", fill=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(1)
+
+    def kv(key, value, key_w=55):
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(key_w, 5, str(key), new_x="RIGHT")
+        pdf.set_font("Helvetica", "", 9)
+        # Truncate very long values
+        v = str(value) if value is not None else "—"
+        if len(v) > 90:
+            v = v[:87] + "..."
+        pdf.cell(0, 5, v, new_x="LMARGIN", new_y="NEXT")
+
+    def bullet(text, indent=5):
+        pdf.set_font("Helvetica", "", 9)
+        pdf.cell(indent, 5, "")
+        pdf.cell(0, 5, f"- {text}", new_x="LMARGIN", new_y="NEXT")
+
+    # ── Title ──
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 10, "QRT Governance Log", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(0, 6, f"{qrt_name} - {qrt_title}", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.cell(0, 5, "Pre-approval audit document. Review before signing off.", new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.ln(3)
+
+    # ── 1. Identity ──
+    section_header("1. IDENTITY & METADATA")
+    kv("Entity:", "Bricksurance SE")
+    kv("LEI:", "5493001KJTIIGC8Y1R12")
+    kv("QRT Reference:", f"{qrt_name} ({qrt_id})")
+    kv("Title:", qrt_title)
+    kv("Reporting Period:", period)
+    kv("Document generated:", now)
+    kv("Generated by:", generated_by)
+
+    # ── 2. Pipeline execution ──
+    section_header("2. PIPELINE EXECUTION")
+    kv("Pipeline:", data["pipeline_name"])
+    kv("Final QRT table:", data["final_table"])
+    kv("Final row count:", f"{data['final_row_count']:,}")
+    kv("Compute:", "Serverless DLT")
+    kv("Channel:", "CURRENT")
+
+    # ── 3. Source feeds & SLA ──
+    section_header("3. SOURCE FEEDS & SLA COMPLIANCE")
+    if not data["sla_rows"]:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 5, "No SLA records found for this period.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        # Table header
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(55, 5, "Feed", border=1, fill=True)
+        pdf.cell(40, 5, "Source system", border=1, fill=True)
+        pdf.cell(20, 5, "Status", border=1, fill=True)
+        pdf.cell(25, 5, "Rows", border=1, fill=True)
+        pdf.cell(0, 5, "Notes", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 8)
+        for row in data["sla_rows"][:20]:
+            feed = str(row.get("feed_name", ""))[:32]
+            src = str(row.get("source_system", ""))[:24]
+            status = str(row.get("status", ""))
+            rc = str(row.get("row_count", ""))
+            notes = str(row.get("notes", ""))[:50]
+            pdf.cell(55, 5, feed, border=1)
+            pdf.cell(40, 5, src, border=1)
+            pdf.cell(20, 5, status, border=1)
+            pdf.cell(25, 5, rc, border=1)
+            pdf.cell(0, 5, notes, border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # ── 4. Data quality ──
+    section_header("4. DATA QUALITY EXPECTATIONS")
+    if not data["dq_rows"]:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 5, "No DQ expectation records found.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        # Aggregate
+        total_pass = sum(int(r.get("passing_records", 0) or 0) for r in data["dq_rows"])
+        total_fail = sum(int(r.get("failing_records", 0) or 0) for r in data["dq_rows"])
+        total_recs = total_pass + total_fail
+        pass_pct = round(total_pass / total_recs * 100, 2) if total_recs > 0 else 100.0
+        kv("Total expectations:", str(len(data["dq_rows"])))
+        kv("Total records evaluated:", f"{total_recs:,}")
+        kv("Passing:", f"{total_pass:,}")
+        kv("Failing (quarantined):", f"{total_fail:,}")
+        kv("Overall pass rate:", f"{pass_pct}%")
+        pdf.ln(1)
+
+        # Detail table
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(45, 5, "Table", border=1, fill=True)
+        pdf.cell(50, 5, "Expectation", border=1, fill=True)
+        pdf.cell(20, 5, "Total", border=1, fill=True)
+        pdf.cell(25, 5, "Failing", border=1, fill=True)
+        pdf.cell(0, 5, "Action", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 7)
+        for row in data["dq_rows"]:
+            t = str(row.get("table_name", ""))[:28]
+            e = str(row.get("expectation_name", ""))[:32]
+            tot = str(row.get("total_records", ""))
+            fail = str(row.get("failing_records", ""))
+            action = str(row.get("action", ""))
+            failing = int(row.get("failing_records", 0) or 0)
+            if failing > 0:
+                pdf.set_text_color(180, 0, 0)
+            pdf.cell(45, 4.5, t, border=1)
+            pdf.cell(50, 4.5, e, border=1)
+            pdf.cell(20, 4.5, tot, border=1)
+            pdf.cell(25, 4.5, fail, border=1)
+            pdf.cell(0, 4.5, action, border=1, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(0, 0, 0)
+
+    # ── 5. Cross-QRT reconciliation ──
+    section_header("5. CROSS-QRT RECONCILIATION")
+    if not data["recon_rows"]:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 5, "No reconciliation checks for this QRT.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(70, 5, "Check", border=1, fill=True)
+        pdf.cell(35, 5, "Source", border=1, fill=True)
+        pdf.cell(35, 5, "Target", border=1, fill=True)
+        pdf.cell(25, 5, "Diff", border=1, fill=True)
+        pdf.cell(0, 5, "Status", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 8)
+        for row in data["recon_rows"]:
+            check = str(row.get("check_description", ""))[:45]
+            src_v = str(row.get("source_value", ""))[:18]
+            tgt_v = str(row.get("target_value", ""))[:18]
+            diff = str(row.get("difference", ""))[:14]
+            status = str(row.get("status", ""))
+            if status != "MATCH":
+                pdf.set_text_color(180, 0, 0)
+            pdf.cell(70, 5, check, border=1)
+            pdf.cell(35, 5, src_v, border=1)
+            pdf.cell(35, 5, tgt_v, border=1)
+            pdf.cell(25, 5, diff, border=1)
+            pdf.cell(0, 5, status, border=1, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(0, 0, 0)
+
+    # ── 6. Model governance (S.25.01 only) ──
+    if data["model_rows"]:
+        section_header("6. MODEL GOVERNANCE (MLflow Registry)")
+        for m in data["model_rows"]:
+            pdf.set_font("Helvetica", "B", 9)
+            alias = str(m.get("alias", "—"))
+            ver = str(m.get("model_version", "—"))
+            pdf.cell(0, 5, f"  {alias} - v{ver}", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 8)
+            kv("    Calibration year:", m.get("calibration_year"), key_w=55)
+            kv("    Registered by:", m.get("registered_by"), key_w=55)
+            kv("    Run timestamp:", m.get("run_timestamp"), key_w=55)
+            kv("    SCR result:", f"EUR {m.get('scr_result_eur','—')}", key_w=55)
+            pdf.ln(1)
+
+    # ── 7. AI reviews ──
+    section_header("7. AI AGENT REVIEWS ATTACHED")
+    if not data["ai_rows"]:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 5, "No AI reviews recorded for this QRT and period.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(50, 5, "Review ID", border=1, fill=True)
+        pdf.cell(50, 5, "Model", border=1, fill=True)
+        pdf.cell(20, 5, "In tok", border=1, fill=True)
+        pdf.cell(20, 5, "Out tok", border=1, fill=True)
+        pdf.cell(0, 5, "Created", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 7)
+        for row in data["ai_rows"]:
+            rid = str(row.get("review_id", ""))[:32]
+            model = str(row.get("model_used", ""))[:32]
+            it = str(row.get("input_tokens", ""))
+            ot = str(row.get("output_tokens", ""))
+            created = str(row.get("created_at", ""))[:25]
+            pdf.cell(50, 5, rid, border=1)
+            pdf.cell(50, 5, model, border=1)
+            pdf.cell(20, 5, it, border=1)
+            pdf.cell(20, 5, ot, border=1)
+            pdf.cell(0, 5, created, border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # ── 8. Approval workflow ──
+    section_header("8. APPROVAL WORKFLOW")
+    appr = data["approval"]
+    if not appr:
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 5, "Not yet submitted for approval.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        kv("Approval ID:", appr.get("approval_id"))
+        kv("Status:", appr.get("status"))
+        kv("Submitted by:", appr.get("submitted_by"))
+        kv("Submitted at:", appr.get("submitted_at"))
+        kv("Reviewed by:", appr.get("reviewed_by") or "(pending)")
+        kv("Reviewed at:", appr.get("reviewed_at") or "(pending)")
+        if appr.get("comments"):
+            kv("Comments:", appr.get("comments"))
+        if appr.get("export_path"):
+            kv("Export path:", appr.get("export_path"))
+
+    # ── 9. Sign-off attestation ──
+    section_header("9. SIGN-OFF ATTESTATION")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.multi_cell(0, 5, (
+        "By approving this QRT, the reviewer attests that: (a) the data lineage "
+        "documented above has been reviewed; (b) data quality results have been "
+        "considered and any failing checks remediated or accepted; (c) the model "
+        "version (where applicable) is the approved Champion; (d) AI agent reviews "
+        "have been read but are advisory only; (e) cross-QRT reconciliation is "
+        "consistent or any differences explained; (f) the QRT is suitable for "
+        "submission to the supervisory authority."
+    ))
+
+    # ── 10. Data integrity ──
+    section_header("10. DATA INTEGRITY")
+    kv("Final row count:", f"{data['final_row_count']:,}")
+    kv("SHA-256 hash:", data_hash[:32] + "...")
+    pdf.set_font("Courier", "", 7)
+    pdf.cell(0, 4, data_hash, new_x="LMARGIN", new_y="NEXT")
+
+    # Footer
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.cell(0, 4, "CONFIDENTIAL - Internal regulatory governance document. Retain per company policy.",
+             new_x="LMARGIN", new_y="NEXT", align="C")
+    pdf.cell(0, 4, "Generated by the Solvency II QRT Reporting platform on Databricks.",
+             new_x="LMARGIN", new_y="NEXT", align="C")
+
+    return bytes(pdf.output())
+
+
+@router.get("/{qrt_id}/governance-log")
+async def get_governance_log(qrt_id: str):
+    """Generate and download the governance log PDF for a QRT."""
+    if qrt_id not in QRT_DEFS:
+        raise HTTPException(404, "Unknown QRT")
+
+    try:
+        user = get_current_user()
+        data = await _gather_governance_data(qrt_id)
+        pdf_bytes = _render_governance_pdf(data, generated_by=user)
+
+        period = str(data["reporting_period"]).replace("-", "")
+        qrt_clean = data["qrt_name"].replace(".", "")
+        filename = f"GOVERNANCE_LOG_{qrt_clean}_{period}.pdf"
+
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    except Exception as exc:
+        logger.exception("Governance log generation failed")
+        raise HTTPException(500, f"Governance log generation failed: {str(exc)}") from exc

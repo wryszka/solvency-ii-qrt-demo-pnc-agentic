@@ -685,6 +685,9 @@ function ApprovalTab({ qrtId }: { qrtId: string }) {
       {/* AI Actuarial Review */}
       <AiReviewSection qrtId={qrtId} />
 
+      {/* Governance Log — for review before approval */}
+      <GovernanceLogSection qrtId={qrtId} />
+
       {/* Certificate generation (only for approved) */}
       {status === 'approved' && <CertificateSection qrtId={qrtId} />}
 
@@ -1170,6 +1173,116 @@ function CertificateSection({ qrtId }: { qrtId: string }) {
           Generate Certificate
         </button>
       )}
+    </div>
+  );
+}
+
+/* ═══════ Governance Log Section ═══════ */
+function GovernanceLogSection({ qrtId }: { qrtId: string }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  function openLog() {
+    setPreviewUrl(`/api/reports/${qrtId}/governance-log`);
+  }
+
+  function downloadLog() {
+    const a = document.createElement('a');
+    a.href = `/api/reports/${qrtId}/governance-log`;
+    a.download = `governance_log_${qrtId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-blue-50 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-100 rounded-lg">
+              <FileCheck className="w-5 h-5 text-slate-700" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Governance Log</h3>
+              <p className="text-xs text-gray-500">Pre-approval audit document — review before signing off</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openLog}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50">
+              <FileCheck className="w-3.5 h-3.5" />
+              {previewUrl ? 'Refresh' : 'Generate & preview'}
+            </button>
+            <button
+              onClick={downloadLog}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-700 rounded-md hover:bg-slate-800">
+              <Download className="w-3.5 h-3.5" />
+              Download PDF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5 text-sm text-gray-600">
+        <p className="mb-3">
+          The governance log consolidates all evidence for this QRT into a single signed document.
+          It is intended for review by the actuarial function holder, audit, and compliance before approval.
+        </p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">1.</span>
+            <span>Identity & metadata (entity, LEI, period, generation timestamp)</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">2.</span>
+            <span>Pipeline execution evidence (DLT, compute, row counts)</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">3.</span>
+            <span>Source feeds & SLA compliance</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">4.</span>
+            <span>Data quality expectations (every check, every result)</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">5.</span>
+            <span>Cross-QRT reconciliation</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">6.</span>
+            <span>Model governance (S.25.01 only — Champion/Challenger)</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">7.</span>
+            <span>AI agent reviews attached</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">8.</span>
+            <span>Approval workflow record</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">9.</span>
+            <span>Sign-off attestation language</span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="text-slate-400 font-mono shrink-0">10.</span>
+            <span>Data integrity hash (SHA-256)</span>
+          </div>
+        </div>
+
+        {previewUrl && (
+          <div className="mt-4 border border-gray-200 rounded-lg overflow-hidden">
+            <iframe
+              src={previewUrl}
+              title="Governance Log Preview"
+              className="w-full bg-white"
+              style={{ height: '700px', border: 0 }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
