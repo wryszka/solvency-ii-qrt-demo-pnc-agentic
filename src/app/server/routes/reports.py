@@ -1450,7 +1450,7 @@ def _render_governance_pdf(data: dict, generated_by: str) -> bytes:
     section_header("1. IDENTITY & METADATA")
     kv("Entity:", "Bricksurance SE")
     kv("LEI:", "5493001KJTIIGC8Y1R12")
-    kv("QRT Reference:", f"{qrt_name} ({qrt_id})")
+    kv("QRT Reference:", f"{qrt_name} ({data['qrt_id']})")
     kv("Title:", qrt_title)
     kv("Reporting Period:", period)
     kv("Document generated:", now)
