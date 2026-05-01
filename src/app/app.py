@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.routes import reports, approvals, monitoring, regulator, genie, supervisor
+from server.routes import reports, approvals, monitoring, regulator, genie, supervisor, archive
 from server.config import get_dashboard_id, get_genie_space_id, get_workspace_host
 
 logging.basicConfig(
@@ -55,6 +55,7 @@ app.include_router(monitoring.router)
 app.include_router(regulator.router)
 app.include_router(genie.router)
 app.include_router(supervisor.router)
+app.include_router(archive.router)
 
 
 @app.get("/api/health")

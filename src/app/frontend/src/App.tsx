@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Building2, FileText, BarChart3, Activity, ShieldCheck, Bot, Code2, Home, Scale } from 'lucide-react';
+import { Building2, FileText, BarChart3, Activity, ShieldCheck, Bot, Code2, Home, Scale, Archive as ArchiveIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Landing from './pages/Landing';
 import Monitor from './pages/Monitor';
@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import Genie from './pages/Genie';
 import RegulatorQA from './pages/RegulatorQA';
 import Governance from './pages/Governance';
+import Archive from './pages/Archive';
 
 function NavLink({ to, icon: Icon, label }: { to: string; icon: React.ComponentType<{ className?: string }>; label: string }) {
   const { pathname } = useLocation();
@@ -45,6 +46,7 @@ function Sidebar() {
         <NavLink to="/monitor" icon={Activity} label="Monitor" />
         <NavLink to="/data-quality" icon={ShieldCheck} label="Data Quality" />
         <NavLink to="/reports" icon={FileText} label="Reports" />
+        <NavLink to="/archive" icon={ArchiveIcon} label="Archive" />
         <NavLink to="/dashboard" icon={BarChart3} label="Dashboards" />
         <NavLink to="/regulator-qa" icon={Bot} label="Regulatory AI" />
         <NavLink to="/governance" icon={Scale} label="Governance" />
@@ -95,6 +97,7 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/regulator-qa" element={<RegulatorQA />} />
             <Route path="/governance" element={<Governance />} />
+            <Route path="/archive" element={<Archive />} />
             <Route path="/genie" element={<Genie />} />
           </Routes>
         </main>

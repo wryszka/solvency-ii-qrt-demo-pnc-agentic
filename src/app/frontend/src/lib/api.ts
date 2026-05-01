@@ -413,3 +413,52 @@ export async function askSupervisorStream(
     }
   }
 }
+
+// ─── Submissions Archive + Process Metrics ──────────────────────────
+
+export interface SubmissionRow {
+  approval_id: string;
+  qrt_id: string;
+  qrt_name: string;
+  qrt_title: string;
+  reporting_period: string;
+  status: string;
+  submitted_by: string | null;
+  submitted_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  comments: string | null;
+  cycle_hours: number | null;
+  dq_pass_rate_pct: number | null;
+  feeds_late: number;
+  feeds_missing: number;
+}
+
+export async function fetchSubmissions(): Promise<{ data: SubmissionRow[] }> {
+  return fetchJson('/api/archive/submissions');
+}
+
+export interface ProcessMetrics {
+  kpis: {
+    total_submissions: number;
+    approved: number;
+    rejected: number;
+    pending: number;
+    approval_rate_pct: number | null;
+    rejection_rate_pct: number | null;
+    avg_cycle_hours: number | null;
+    median_cycle_hours: number | null;
+    periods_covered: number;
+    earliest_period: string | null;
+    latest_period: string | null;
+  };
+  dq_trend: { reporting_period: string; pass_rate_pct: number | string; failing_checks: number | string }[];
+  sla_trend: { reporting_period: string; feed_count: number | string; late_count: number | string; missing_count: number | string; on_time_count: number | string }[];
+  submissions_per_period: { period: string; count: number }[];
+  top_reviewers: { name: string; count: number }[];
+  top_submitters: { name: string; count: number }[];
+}
+
+export async function fetchProcessMetrics(): Promise<ProcessMetrics> {
+  return fetchJson('/api/archive/process-metrics');
+}

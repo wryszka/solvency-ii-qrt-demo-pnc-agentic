@@ -1,35 +1,37 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  Scale, MessageCircleQuestion, Database, ShieldCheck, FileSearch,
-  GitCompare, FlaskConical, Bot, Workflow, History, KeyRound, ScrollText,
-  ChevronDown, ChevronRight,
+  Scale, BarChart3, Database, ShieldCheck, FileSearch,
+  GitCompare, FlaskConical, Bot, Workflow, History, ScrollText,
+  CheckCircle2, XCircle, Clock, TrendingUp, AlertTriangle,
 } from 'lucide-react';
+import { fetchProcessMetrics, type ProcessMetrics } from '../lib/api';
+import { Skeleton } from '../components/Skeleton';
 
-type TabId = 'qa' | 'inventory';
+type TabId = 'overview' | 'inventory';
 
 export default function Governance() {
-  const [tab, setTab] = useState<TabId>('qa');
+  const [tab, setTab] = useState<TabId>('overview');
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-4">
+    <div className="max-w-6xl mx-auto p-6 space-y-4">
       <div>
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Scale className="w-6 h-6 text-violet-600" />
           Governance
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          How the QRT process is governed, audited, and what data the platform records along the way
+          Process health and an inventory of everything the platform records along the way
         </p>
       </div>
 
       {/* Tab strip */}
       <div className="flex gap-1 border-b border-gray-200">
         <TabButton
-          active={tab === 'qa'}
-          onClick={() => setTab('qa')}
-          icon={MessageCircleQuestion}
-          label="Governance Q&A"
-          hint="Standard questions an actuary or manager would ask"
+          active={tab === 'overview'}
+          onClick={() => setTab('overview')}
+          icon={BarChart3}
+          label="Process Overview"
+          hint="KPIs and trends a process manager wants on a single screen"
         />
         <TabButton
           active={tab === 'inventory'}
@@ -40,7 +42,7 @@ export default function Governance() {
         />
       </div>
 
-      {tab === 'qa' && <GovernanceQA />}
+      {tab === 'overview' && <ProcessOverview />}
       {tab === 'inventory' && <DataInventory />}
     </div>
   );
@@ -71,255 +73,328 @@ function TabButton({
   );
 }
 
-/* ═══════════════════════ Tab 1: Governance Q&A ═══════════════════════ */
+/* ═══════════════════════ Tab 1: Process Overview ═══════════════════════ */
 
-interface QA {
-  q: string;
-  a: string;
-  category: 'roles' | 'audit' | 'controls' | 'ai' | 'data';
-}
+function ProcessOverview() {
+  const [metrics, setMetrics] = useState<ProcessMetrics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-const QA_ITEMS: QA[] = [
-  {
-    category: 'roles',
-    q: 'Who is responsible for approving each QRT?',
-    a: `Each QRT carries a documented owner and an approver:
-- **S.06.02 (Assets)** — prepared by Investments, approved by the CFO designate
-- **S.05.01 (Premiums/Claims/Expenses)** — prepared by Finance, approved by the CFO
-- **S.25.01 (SCR)** — prepared by Risk/Actuarial, approved by the appointed Actuary and CRO
-- **S.26.06 (NL UW Risk)** — prepared by Actuarial, approved by the appointed Actuary
+  useEffect(() => {
+    fetchProcessMetrics()
+      .then(setMetrics)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
 
-The approver of record is whoever clicks "Approve" in the app; their identity, comments, and timestamp are persisted to the \`6_ai_approvals\` table.`,
-  },
-  {
-    category: 'audit',
-    q: 'What is the audit trail when a QRT is approved or rejected?',
-    a: `Every approval action writes a row to \`6_ai_approvals\` capturing: \`qrt_id\`, \`reporting_period\`, \`status\` (submitted / approved / rejected), \`submitted_by\`, \`submitted_at\`, \`reviewed_by\`, \`reviewed_at\`, \`comments\`. Rows are immutable from the app — corrections come through new submissions, leaving the original visible.
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 space-y-2">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-2.5 w-24" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
 
-The Governance Log document (auto-generated per QRT) snapshots all of this plus the underlying data, DQ outcomes, lineage, and AI agent verdicts at the moment of approval. It's a single PDF you can hand to an auditor.`,
-  },
-  {
-    category: 'controls',
-    q: 'How do we ensure data quality before submission?',
-    a: `Three layers of checks:
-1. **DLT Expectations** — every staging/gold table has declarative constraints (e.g. \`assets_have_lei\`, \`premiums_non_negative\`, \`subrogation_within_threshold\`). Failures are recorded in \`5_mon_dq_expectation_results\` and visible on the Monitor page.
-2. **Cross-QRT reconciliation** — \`5_mon_cross_qrt_reconciliation\` runs ~10 named checks (e.g. assets in S.06.02 must match market-risk inputs in S.25.01). Mismatches block approval.
-3. **Pipeline SLA tracking** — \`5_mon_pipeline_sla_status\` tracks feed arrival vs deadline so a delayed feed doesn't get silently approved with stale data.
+  if (error || !metrics) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-red-700 text-sm">
+        Failed to load process metrics: {error || 'unknown'}
+      </div>
+    );
+  }
 
-Approval is hard-gated on these — the supervisor agent surfaces any failure when asked "are we on track for Friday?".`,
-  },
-  {
-    category: 'controls',
-    q: 'What controls prevent unauthorized changes to QRT data?',
-    a: `Data lives in Unity Catalog with table-level GRANTs. The app's service principal has \`SELECT\` on raw/staging/gold and \`INSERT/UPDATE\` only on \`6_ai_approvals\`. End users authenticate via SSO through the Databricks App, and their identity is propagated to the audit log.
+  const k = metrics.kpis;
 
-The QRT outputs themselves are produced by versioned DLT pipelines — direct \`INSERT\` from the app is not possible. To re-state, you re-run the pipeline against corrected raw data.`,
-  },
-  {
-    category: 'controls',
-    q: 'How are model versions managed?',
-    a: `Stochastic and standard-formula models are registered in Unity Catalog (Mosaic AI Model Registry). \`5_mon_model_registry_log\` captures every version transition (Champion → Challenger, deprecation, etc.) with the actor and timestamp. Each QRT row carries the \`model_version\` that produced it, so you can always answer "which model produced this number?".
-
-Re-running a QRT with a new model creates a new period-aligned record; the previous version is preserved.`,
-  },
-  {
-    category: 'audit',
-    q: 'What is the segregation of duties between preparer and approver?',
-    a: `The app enforces that \`submitted_by\` and \`reviewed_by\` cannot be the same identity for a given (\`qrt_id\`, \`reporting_period\`) pair. If you submitted, the Approve button is disabled for you; another authorised user must review.
-
-For the demo, the same identity may appear on both sides because it's a single-user environment — in production this is enforced by the app's authorisation layer plus a SQL constraint on \`6_ai_approvals\`.`,
-  },
-  {
-    category: 'audit',
-    q: 'What happens if a regulator requests a re-submission?',
-    a: `Re-submission is a fresh approval cycle, not an edit. The flow:
-1. Investigate the issue with the supervisor agent / Monitor page.
-2. Correct the upstream data (raw layer) — never the QRT layer directly.
-3. Re-run the affected DLT pipeline; this writes a new period-aligned row.
-4. The previous approval row stays in \`6_ai_approvals\` with status \`approved\`; a new submission row is appended.
-5. Generate a fresh Governance Log explaining what changed and why.
-
-The original submission and its supporting data remain queryable indefinitely — required by Article 35 retention rules.`,
-  },
-  {
-    category: 'data',
-    q: 'How long is data retained, and what is the chain of custody?',
-    a: `All raw, staging, gold, monitoring, and approval tables are retained for the regulatory retention period (Solvency II Article 35: 5 years minimum; we apply 7 to align with internal policy).
-
-Chain of custody from raw to submitted file:
-- Raw feeds land in \`1_raw_*\` with source-system and ingest-timestamp
-- Lineage is automatic in Unity Catalog — every downstream table tracks its inputs
-- The submitted XBRL package references the exact \`reporting_period\` and \`model_version\` it was built from
-- The Governance Log embeds row-level totals so the file shipped to EIOPA can always be reconstructed`,
-  },
-  {
-    category: 'data',
-    q: 'Who can access what data?',
-    a: `Access is controlled through Unity Catalog GRANTs and Databricks Apps SSO. Typical assignment:
-- **Reporting team** — \`SELECT\` on raw, staging, gold, monitoring; \`INSERT\` on approvals via the app
-- **Audit / Compliance** — \`SELECT\` everywhere, including \`5_mon_*\` and \`6_ai_*\` (read-only)
-- **External auditors** — temporary share via Delta Sharing scoped to one reporting period
-- **Service principals** (e.g. the app, DLT pipelines) — minimum scope per task
-
-PII (e.g. counterparty contact data, individual claim narratives) is masked or hashed in the curated layer and only available to roles with explicit \`UNMASK\` privilege.`,
-  },
-  {
-    category: 'ai',
-    q: 'Are AI / agent outputs reviewed before being used?',
-    a: `AI outputs are advisory — they never write to the regulatory tables. The supervisor agent reads from gold and monitoring tables, summarises findings, and surfaces them in the chat. Approval still requires a human click in the Reports view.
-
-For traceability, every LLM call is wrapped with MLflow tracing — system prompt, user prompt, model used, input/output tokens, and timestamp are persisted. The Governance Log includes the agent verdict and prompt for each QRT under review.`,
-  },
-  {
-    category: 'ai',
-    q: 'What stops the AI from hallucinating numbers?',
-    a: `Three guardrails:
-1. **Tool-only data access** — the supervisor cannot fetch numbers; it calls registered tools (\`pipeline_status\`, \`qrt_summary\`, \`cross_qrt_reconciliation\`, \`ask_genie\`) which run against governed tables. Anything quantitative in its answer comes from a tool result that's recorded in the trace.
-2. **AI Gateway content filtering** — input and output go through configurable safety/PII filters with rate limits. Failures are logged.
-3. **Output validation in the app** — guardrail checks (\`server/guardrails.py\`) verify length, PII leakage, and refusal patterns; truncation/flagging is auditable.
-
-The reasoning trace shown in the chat lets a reviewer spot-check that the answer is grounded in tool output, not invented.`,
-  },
-  {
-    category: 'ai',
-    q: 'Which model produced which answer, and can we change it?',
-    a: `The model used is shown at the bottom of every supervisor response (e.g. \`databricks-claude-sonnet-4\`). The app prefers Claude Sonnet, with Llama 3.3 70B as a fallback. To switch, set the \`AI_GATEWAY_ENDPOINT\` env var to a Gateway-routed endpoint and the call will go through that — gateway config governs which underlying model serves the request.
-
-For long-term reproducibility, MLflow traces capture the resolved endpoint at call time.`,
-  },
-];
-
-const CATEGORY_LABELS: Record<QA['category'], string> = {
-  roles: 'Roles & responsibilities',
-  audit: 'Audit trail',
-  controls: 'Controls',
-  data: 'Data access & retention',
-  ai: 'AI / agent governance',
-};
-
-const CATEGORY_ICONS: Record<QA['category'], React.ComponentType<{ className?: string }>> = {
-  roles: KeyRound,
-  audit: ScrollText,
-  controls: ShieldCheck,
-  data: Database,
-  ai: Bot,
-};
-
-function GovernanceQA() {
-  const [openIdx, setOpenIdx] = useState<number | null>(0);
-  const grouped: Record<QA['category'], QA[]> = { roles: [], audit: [], controls: [], data: [], ai: [] };
-  QA_ITEMS.forEach((item) => grouped[item.category].push(item));
-
-  let runningIdx = 0;
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="bg-violet-50 border border-violet-200 rounded-lg p-4 text-sm text-violet-900">
         <p>
-          <strong>Use this page</strong> when an actuary, manager, or auditor asks how the process is controlled.
-          Each answer reflects what's actually wired into the platform — file paths, table names, and SQL identifiers
-          are real and you can verify them in the corresponding pages.
+          <strong>For the process owner.</strong> Where do submissions stand right now, how long do they take,
+          and where is data quality drifting? Numbers below are aggregated across {k.periods_covered}{' '}
+          reporting period{k.periods_covered === 1 ? '' : 's'}{' '}
+          ({k.earliest_period} → {k.latest_period}).
         </p>
       </div>
 
-      {(Object.keys(grouped) as QA['category'][]).map((cat) => {
-        const items = grouped[cat];
-        if (items.length === 0) return null;
-        const Icon = CATEGORY_ICONS[cat];
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          icon={CheckCircle2}
+          label="Approval rate"
+          value={k.approval_rate_pct != null ? `${k.approval_rate_pct}%` : '—'}
+          sub={`${k.approved} of ${k.total_submissions} submissions`}
+          tone={k.approval_rate_pct != null && k.approval_rate_pct >= 80 ? 'good' : 'warn'}
+        />
+        <KpiCard
+          icon={Clock}
+          label="Avg cycle time"
+          value={k.avg_cycle_hours != null ? formatHours(k.avg_cycle_hours) : '—'}
+          sub={k.median_cycle_hours != null ? `median ${formatHours(k.median_cycle_hours)}` : 'submit → approve'}
+          tone="neutral"
+        />
+        <KpiCard
+          icon={XCircle}
+          label="Rejection rate"
+          value={k.rejection_rate_pct != null ? `${k.rejection_rate_pct}%` : '—'}
+          sub={`${k.rejected} rejected, ${k.pending} pending`}
+          tone={k.rejection_rate_pct != null && k.rejection_rate_pct < 10 ? 'good' : 'warn'}
+        />
+        <KpiCard
+          icon={Workflow}
+          label="In flight"
+          value={`${k.pending}`}
+          sub="awaiting review"
+          tone={k.pending > 0 ? 'warn' : 'good'}
+        />
+      </div>
+
+      {/* DQ + SLA trend */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PanelCard title="Data quality trend" icon={ShieldCheck} hint="Pass rate per period; lower = more failing rows.">
+          <DqTrendBars data={metrics.dq_trend} />
+        </PanelCard>
+        <PanelCard title="Feed punctuality" icon={Workflow} hint="Late + missing feeds per period.">
+          <SlaTrendBars data={metrics.sla_trend} />
+        </PanelCard>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PanelCard title="Submissions per period" icon={TrendingUp} hint="Includes resubmissions.">
+          <SubmissionsBars data={metrics.submissions_per_period} />
+        </PanelCard>
+        <PanelCard title="Approver workload" icon={ScrollText} hint="Top reviewers by submission count.">
+          <PeopleList rows={metrics.top_reviewers} emptyText="No reviews recorded yet." />
+        </PanelCard>
+      </div>
+
+      {/* Process callouts (manager Q&A) */}
+      <Callouts metrics={metrics} />
+    </div>
+  );
+}
+
+function KpiCard({ icon: Icon, label, value, sub, tone }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  sub: string;
+  tone: 'good' | 'warn' | 'neutral';
+}) {
+  const toneClass = tone === 'good'
+    ? 'border-green-200 bg-green-50/60'
+    : tone === 'warn'
+      ? 'border-amber-200 bg-amber-50/60'
+      : 'border-gray-200 bg-white';
+  const iconClass = tone === 'good' ? 'text-green-600' : tone === 'warn' ? 'text-amber-600' : 'text-violet-600';
+  return (
+    <div className={`rounded-lg border ${toneClass} p-4`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <Icon className={`w-4 h-4 ${iconClass}`} />
+      </div>
+      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      <div className="text-xs text-gray-700 font-medium mt-0.5">{label}</div>
+      <div className="text-[10px] text-gray-500 mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
+function PanelCard({ title, icon: Icon, hint, children }: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-gray-200 bg-gray-50/60 flex items-center gap-2">
+        <Icon className="w-4 h-4 text-violet-600" />
+        <div>
+          <div className="text-sm font-bold text-gray-800">{title}</div>
+          {hint && <div className="text-[10px] text-gray-500">{hint}</div>}
+        </div>
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function DqTrendBars({ data }: { data: ProcessMetrics['dq_trend'] }) {
+  if (!data.length) return <Empty />;
+  return (
+    <div className="space-y-2">
+      {data.map((row) => {
+        const pct = parseFloat(String(row.pass_rate_pct ?? 0));
+        const failing = parseInt(String(row.failing_checks ?? 0), 10);
+        const tone = pct >= 99 ? 'bg-green-500' : pct >= 95 ? 'bg-amber-500' : 'bg-red-500';
         return (
-          <section key={cat} className="space-y-2">
-            <h3 className="flex items-center gap-2 text-sm font-bold text-gray-700 uppercase tracking-wide">
-              <Icon className="w-4 h-4 text-violet-600" />
-              {CATEGORY_LABELS[cat]}
-            </h3>
-            <div className="space-y-1.5">
-              {items.map((item) => {
-                const myIdx = runningIdx++;
-                const open = openIdx === myIdx;
-                return (
-                  <div key={item.q} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-                    <button
-                      onClick={() => setOpenIdx(open ? null : myIdx)}
-                      className="w-full flex items-start gap-2 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-                    >
-                      {open ? (
-                        <ChevronDown className="w-4 h-4 text-violet-600 mt-0.5 shrink-0" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                      )}
-                      <span className={`text-sm font-medium ${open ? 'text-violet-800' : 'text-gray-800'}`}>
-                        {item.q}
-                      </span>
-                    </button>
-                    {open && (
-                      <div className="px-4 pb-4 pl-10 prose-sm max-w-none text-sm text-gray-700 leading-relaxed">
-                        <Markdown text={item.a} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+          <div key={row.reporting_period} className="text-xs">
+            <div className="flex justify-between mb-0.5">
+              <span className="font-mono text-gray-700">{row.reporting_period}</span>
+              <span className="font-medium text-gray-700">{pct}% {failing > 0 && <span className="text-amber-600">· {failing} failing</span>}</span>
             </div>
-          </section>
+            <div className="h-2 bg-gray-100 rounded overflow-hidden">
+              <div className={`h-full ${tone} transition-all`} style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
+          </div>
         );
       })}
     </div>
   );
 }
 
-/** Lightweight markdown — bold via **x**, code via `x`, list via leading `- `. */
-function Markdown({ text }: { text: string }) {
-  const lines = text.split('\n');
-  const blocks: React.ReactNode[] = [];
-  let listBuf: string[] = [];
-  const flushList = () => {
-    if (listBuf.length === 0) return;
-    blocks.push(
-      <ul key={blocks.length} className="list-disc pl-5 space-y-1 my-1.5">
-        {listBuf.map((l, i) => (
-          <li key={i}>{renderInline(l)}</li>
-        ))}
-      </ul>,
-    );
-    listBuf = [];
-  };
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    if (line.startsWith('- ')) {
-      listBuf.push(line.slice(2));
-    } else if (line.match(/^\d+\.\s/)) {
-      listBuf.push(line.replace(/^\d+\.\s/, ''));
-    } else {
-      flushList();
-      if (line.trim() === '') {
-        blocks.push(<div key={blocks.length} className="h-1.5" />);
-      } else {
-        blocks.push(<p key={blocks.length} className="my-1">{renderInline(line)}</p>);
-      }
-    }
-  }
-  flushList();
-  return <>{blocks}</>;
+function SlaTrendBars({ data }: { data: ProcessMetrics['sla_trend'] }) {
+  if (!data.length) return <Empty />;
+  const max = Math.max(...data.map((d) => parseInt(String(d.feed_count || 0), 10)));
+  return (
+    <div className="space-y-2">
+      {data.map((row) => {
+        const total = parseInt(String(row.feed_count || 0), 10);
+        const late = parseInt(String(row.late_count || 0), 10);
+        const missing = parseInt(String(row.missing_count || 0), 10);
+        const onTime = parseInt(String(row.on_time_count || 0), 10);
+        const w = (n: number) => total > 0 ? `${(n / max) * 100}%` : '0%';
+        return (
+          <div key={row.reporting_period} className="text-xs">
+            <div className="flex justify-between mb-0.5">
+              <span className="font-mono text-gray-700">{row.reporting_period}</span>
+              <span className="text-gray-500">
+                <span className="text-green-700">{onTime}</span> on-time
+                {late > 0 && <> · <span className="text-amber-700">{late}</span> late</>}
+                {missing > 0 && <> · <span className="text-red-700">{missing}</span> missing</>}
+              </span>
+            </div>
+            <div className="h-2 bg-gray-100 rounded overflow-hidden flex">
+              <div className="h-full bg-green-500" style={{ width: w(onTime) }} />
+              <div className="h-full bg-amber-500" style={{ width: w(late) }} />
+              <div className="h-full bg-red-500" style={{ width: w(missing) }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
-function renderInline(text: string): React.ReactNode {
-  // Split on `code` and **bold**
-  const parts: React.ReactNode[] = [];
-  const re = /(`[^`]+`|\*\*[^*]+\*\*)/g;
-  let lastIdx = 0;
-  let key = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
-    const tok = m[0];
-    if (tok.startsWith('`')) {
-      parts.push(<code key={key++} className="px-1 py-0.5 bg-gray-100 rounded text-[12px] font-mono text-violet-700">{tok.slice(1, -1)}</code>);
-    } else {
-      parts.push(<strong key={key++} className="font-semibold text-gray-900">{tok.slice(2, -2)}</strong>);
-    }
-    lastIdx = m.index + tok.length;
+function SubmissionsBars({ data }: { data: ProcessMetrics['submissions_per_period'] }) {
+  if (!data.length) return <Empty />;
+  const max = Math.max(...data.map((d) => d.count));
+  return (
+    <div className="space-y-2">
+      {data.map((row) => (
+        <div key={row.period} className="text-xs">
+          <div className="flex justify-between mb-0.5">
+            <span className="font-mono text-gray-700">{row.period}</span>
+            <span className="font-medium text-gray-700">{row.count}</span>
+          </div>
+          <div className="h-2 bg-gray-100 rounded overflow-hidden">
+            <div className="h-full bg-violet-500" style={{ width: `${(row.count / max) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PeopleList({ rows, emptyText }: { rows: { name: string; count: number }[]; emptyText: string }) {
+  if (!rows.length) return <div className="text-xs text-gray-400 italic">{emptyText}</div>;
+  return (
+    <div className="space-y-1.5">
+      {rows.map((p) => (
+        <div key={p.name} className="flex items-center justify-between text-xs">
+          <span className="text-gray-700 truncate">{p.name}</span>
+          <span className="font-mono text-gray-500 ml-2">{p.count}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Empty() {
+  return <div className="text-xs text-gray-400 italic">No data yet for this view.</div>;
+}
+
+function Callouts({ metrics }: { metrics: ProcessMetrics }) {
+  const k = metrics.kpis;
+  const callouts: { tone: 'good' | 'warn' | 'info'; icon: React.ComponentType<{ className?: string }>; text: string }[] = [];
+
+  if (k.pending > 0) {
+    callouts.push({
+      tone: 'warn',
+      icon: Clock,
+      text: `${k.pending} submission${k.pending === 1 ? '' : 's'} awaiting review — see the Archive for the queue.`,
+    });
   }
-  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
-  return parts;
+  if (k.rejected > 0) {
+    callouts.push({
+      tone: 'warn',
+      icon: AlertTriangle,
+      text: `${k.rejected} submission${k.rejected === 1 ? ' was' : 's were'} rejected and required resubmission.`,
+    });
+  }
+  if (k.avg_cycle_hours != null && k.avg_cycle_hours < 72) {
+    callouts.push({
+      tone: 'good',
+      icon: CheckCircle2,
+      text: `Average submit→approve cycle is ${formatHours(k.avg_cycle_hours)} — comfortably within target.`,
+    });
+  }
+  // Latest DQ
+  const lastDq = metrics.dq_trend[metrics.dq_trend.length - 1];
+  if (lastDq) {
+    const pct = parseFloat(String(lastDq.pass_rate_pct ?? 0));
+    if (pct < 99) {
+      callouts.push({
+        tone: 'warn',
+        icon: ShieldCheck,
+        text: `Latest period DQ pass rate is ${pct}% — review failing checks on the Monitor page before approval.`,
+      });
+    }
+  }
+
+  if (callouts.length === 0) {
+    callouts.push({
+      tone: 'good',
+      icon: CheckCircle2,
+      text: 'No outstanding action items. The process is on track.',
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-bold text-gray-800">What needs my attention?</h3>
+      <div className="space-y-1.5">
+        {callouts.map((c, i) => {
+          const cls = c.tone === 'warn'
+            ? 'border-amber-200 bg-amber-50 text-amber-900'
+            : c.tone === 'good'
+              ? 'border-green-200 bg-green-50 text-green-900'
+              : 'border-blue-200 bg-blue-50 text-blue-900';
+          return (
+            <div key={i} className={`flex items-start gap-2 px-3 py-2 border rounded-md text-sm ${cls}`}>
+              <c.icon className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{c.text}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatHours(h: number): string {
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  if (h < 48) return `${h.toFixed(1)}h`;
+  return `${(h / 24).toFixed(1)}d`;
 }
 
 /* ═══════════════════════ Tab 2: Data Collected & Uses ═══════════════════════ */
@@ -484,7 +559,7 @@ function DataInventory() {
                   {cat.collected.map((c, i) => (
                     <li key={i} className="text-gray-700 leading-snug">
                       <span>{c.item}</span>
-                      <span className="text-gray-400 text-xs ml-1.5">— <Markdown text={c.where} /></span>
+                      <span className="text-gray-400 text-xs ml-1.5">— <code className="px-1 py-0.5 bg-gray-100 rounded text-[11px] font-mono text-violet-700">{c.where.replace(/`/g, '')}</code></span>
                     </li>
                   ))}
                 </ul>
