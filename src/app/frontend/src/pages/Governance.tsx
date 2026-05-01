@@ -75,7 +75,7 @@ function TabButton({
 
 /* ═══════════════════════ Tab 1: Process Overview ═══════════════════════ */
 
-function ProcessOverview() {
+export function ProcessOverview() {
   const [metrics, setMetrics] = useState<ProcessMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -528,7 +528,7 @@ const DATA_CATEGORIES: DataCategory[] = [
   },
 ];
 
-function DataInventory() {
+export function DataInventory() {
   return (
     <div className="space-y-4">
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">

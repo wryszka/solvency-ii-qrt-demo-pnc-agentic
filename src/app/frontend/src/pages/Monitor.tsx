@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, Activity, ShieldCheck, ArrowRight, Bot, Sparkles, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, Activity, ShieldCheck, ArrowRight, Bot,
+  Sparkles, Shield, ChevronDown, ChevronUp, BarChart3, Database, GitCompare, Workflow, Scale,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
+import { ProcessOverview, DataInventory } from './Governance';
+
+type MonitorTab = 'overview' | 'ingestion' | 'reconciliation' | 'process' | 'catalog';
 
 export default function Monitor() {
   const [sla, setSla] = useState<Row[]>([]);
@@ -12,6 +18,7 @@ export default function Monitor() {
   const [recon, setRecon] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<MonitorTab>('overview');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -70,7 +77,7 @@ export default function Monitor() {
   const reconTotal = recon.length;
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -90,61 +97,68 @@ export default function Monitor() {
         </div>
       </div>
 
-      {/* KPI Strip */}
-      <div className="grid grid-cols-4 gap-4">
-        <KpiCard
-          icon={Activity}
-          label="Feeds Received"
-          value={`${feedsReceived}/${totalFeeds}`}
-          color={allGreen ? 'green' : 'amber'}
-        />
-        <KpiCard
-          icon={ShieldCheck}
-          label="DQ Pass Rate"
-          value={`${passRate}%`}
-          color={parseFloat(String(passRate)) >= 99 ? 'green' : 'amber'}
-          onClick={() => navigate('/data-quality')}
-        />
-        <KpiCard
-          icon={CheckCircle2}
-          label="Reconciliation"
-          value={`${reconMatches}/${reconTotal} Match`}
-          color={reconMatches === reconTotal ? 'green' : 'amber'}
-        />
-        <KpiCard
-          icon={Clock}
-          label="Quarantined Rows"
-          value={String(totalFailing)}
-          color={totalFailing === 0 ? 'green' : totalFailing < 50 ? 'amber' : 'red'}
-          onClick={() => navigate('/data-quality')}
-        />
+      {/* Tab strip */}
+      <div className="flex flex-wrap gap-1 border-b border-gray-200 -mt-1">
+        <MonitorTabButton active={tab === 'overview'} onClick={() => setTab('overview')} icon={BarChart3} label="Overview" />
+        <MonitorTabButton active={tab === 'ingestion'} onClick={() => setTab('ingestion')} icon={Workflow} label="Ingestion" />
+        <MonitorTabButton active={tab === 'reconciliation'} onClick={() => setTab('reconciliation')} icon={GitCompare} label="Reconciliation" />
+        <MonitorTabButton active={tab === 'process'} onClick={() => setTab('process')} icon={Scale} label="Process" />
+        <MonitorTabButton active={tab === 'catalog'} onClick={() => setTab('catalog')} icon={Database} label="Data Catalog" />
       </div>
 
-      {/* Feed Status Cards */}
-      <FeedStatusSection feeds={sla} />
+      {tab === 'overview' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-4 gap-4">
+            <KpiCard icon={Activity} label="Feeds Received" value={`${feedsReceived}/${totalFeeds}`} color={allGreen ? 'green' : 'amber'} onClick={() => setTab('ingestion')} />
+            <KpiCard icon={ShieldCheck} label="DQ Pass Rate" value={`${passRate}%`} color={parseFloat(String(passRate)) >= 99 ? 'green' : 'amber'} onClick={() => navigate('/data-quality')} />
+            <KpiCard icon={CheckCircle2} label="Reconciliation" value={`${reconMatches}/${reconTotal} Match`} color={reconMatches === reconTotal ? 'green' : 'amber'} onClick={() => setTab('reconciliation')} />
+            <KpiCard icon={Clock} label="Quarantined Rows" value={String(totalFailing)} color={totalFailing === 0 ? 'green' : totalFailing < 50 ? 'amber' : 'red'} onClick={() => navigate('/data-quality')} />
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/')} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+              View QRT Reports <ArrowRight className="w-4 h-4" />
+            </button>
+            <button onClick={() => navigate('/data-quality')} className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium">
+              DQ Dashboard <ArrowRight className="w-4 h-4" />
+            </button>
+            <button onClick={() => navigate('/archive')} className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium">
+              Submissions Archive <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
-      {/* Reconciliation Summary */}
-      <ReconSection checks={recon} />
-
-      {/* Cross-QRT AI Consistency Review */}
-      <CrossQrtReviewSection />
-
-      {/* Quick Actions */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-        >
-          View QRT Reports <ArrowRight className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => navigate('/data-quality')}
-          className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
-        >
-          DQ Dashboard <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
+      {tab === 'ingestion' && <FeedStatusSection feeds={sla} />}
+      {tab === 'reconciliation' && (
+        <div className="space-y-5">
+          <ReconSection checks={recon} />
+          <CrossQrtReviewSection />
+        </div>
+      )}
+      {tab === 'process' && <ProcessOverview />}
+      {tab === 'catalog' && <DataInventory />}
     </div>
+  );
+}
+
+function MonitorTabButton({ active, onClick, icon: Icon, label }: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+        active
+          ? 'border-blue-600 text-blue-700 bg-blue-50/50'
+          : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+      }`}
+    >
+      <Icon className="w-4 h-4" />
+      {label}
+    </button>
   );
 }
 
@@ -288,10 +302,15 @@ function FeedStatusSection({ feeds }: { feeds: Row[] }) {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-3">
-        <h3 className="text-lg font-semibold text-gray-900">Data Feed Status</h3>
-        <span className="text-[10px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Unity Catalog Data Quality Monitoring</span>
+      <div className="flex items-center gap-3 mb-1">
+        <h3 className="text-lg font-semibold text-gray-900">Data Ingestion — Source Assets</h3>
+        <span className="text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Unity Catalog</span>
       </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Each row below is a tracked data asset (Unity Catalog table) with its source system, freshness vs SLA,
+        row count, and DQ pass rate. Click any asset to drill into freshness history, completeness, expectations,
+        and a sample of rows.
+      </p>
       <div className="grid gap-2">
         {feeds.map((feed) => (
           <div key={feed.feed_name}>
@@ -330,7 +349,11 @@ function FeedCard({ feed, isExpanded, onClick }: { feed: Row; isExpanded: boolea
         <Icon className={`w-5 h-5 ${cfg.color}`} />
         <div>
           <div className="font-semibold text-gray-900 capitalize">{String(feed.feed_name).replace(/^1_raw_/, '').replace(/_/g, ' ')}</div>
-          <div className="text-xs text-gray-500">{feed.source_system}</div>
+          <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5">
+            <code className="px-1.5 py-0.5 bg-gray-100 rounded font-mono text-[10px] text-blue-700">{feed.feed_name}</code>
+            <span>·</span>
+            <span>{feed.source_system}</span>
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-6 text-sm">
