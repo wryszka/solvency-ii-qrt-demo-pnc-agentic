@@ -362,3 +362,54 @@ export interface GenieResponse {
 export function askGenie(question: string): Promise<GenieResponse> {
   return postJson('/api/genie/ask', { question });
 }
+
+// ─── Supervisor API (streaming) ───────────────────────────────────
+
+export type SupervisorEvent =
+  | { type: 'status'; message: string }
+  | { type: 'tool_call'; tool_call_id: string; name: string; arguments: Record<string, unknown> }
+  | { type: 'tool_result'; tool_call_id: string; name: string; result_preview: string; result_size: number }
+  | { type: 'answer'; text: string }
+  | { type: 'done'; model_used: string; input_tokens: number; output_tokens: number; iterations: number }
+  | { type: 'error'; message: string };
+
+export async function askSupervisorStream(
+  question: string,
+  onEvent: (event: SupervisorEvent) => void,
+): Promise<void> {
+  const res = await fetch('/api/supervisor/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Supervisor stream failed: ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // Parse SSE: events separated by \n\n, each event has "event: TYPE\ndata: JSON"
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+    for (const block of events) {
+      const lines = block.split('\n');
+      let evType = 'message';
+      let evData = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) evType = line.slice(7).trim();
+        else if (line.startsWith('data: ')) evData = line.slice(6);
+      }
+      if (!evData) continue;
+      try {
+        const parsed = JSON.parse(evData);
+        onEvent({ type: evType, ...parsed } as SupervisorEvent);
+      } catch (e) {
+        console.error('Failed to parse SSE event:', evType, evData, e);
+      }
+    }
+  }
+}

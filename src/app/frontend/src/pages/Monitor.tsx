@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, Activity, ShieldCheck, ArrowRight, Bot, Sparkles, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
+import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
 
@@ -25,8 +26,22 @@ export default function Monitor() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-3 w-64" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          ))}
+        </div>
+        <SkeletonTable rows={6} cols={5} />
+        <SkeletonTable rows={4} cols={4} />
       </div>
     );
   }

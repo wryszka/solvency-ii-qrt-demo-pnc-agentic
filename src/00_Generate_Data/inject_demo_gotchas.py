@@ -256,3 +256,53 @@ print("  -> DQ Triage agent should identify the custodian migration pattern")
 # MAGIC | **Cross-QRT Consistency** | "Gov bond duration of 3.2 years implies DV01 of EUR ~125M, but market risk charge of EUR 200M implies significantly higher sensitivity." |
 # MAGIC | **Stochastic Engine** | "Windstorm TVaR/VaR ratio of 1.12x at 1-in-200 is abnormally thin. Expected 1.5-2.0x for European windstorm. Possible convergence issue or tail truncation." |
 # MAGIC | **DQ Triage** | "4 assets with null CIC codes — all from the same custodian (Euroclear). Likely custodian migration last week — re-request feed with proper CIC mapping." |
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Gotcha 6: Talk-Track Scenario — S.05.01 Held Pending New Claims Feed
+# MAGIC
+# MAGIC Sets up a coherent end-to-end story the supervisor agent can tell when asked
+# MAGIC "what's the status of our QRTs, are we at risk of missing the deadline?"
+# MAGIC
+# MAGIC State after this gotcha:
+# MAGIC - The claims feed for S.05.01 has been flagged late + DQ failure
+# MAGIC - Other feeds are on time and clean
+# MAGIC - Submission deadline = Friday this week
+# MAGIC - New claims feed expected by Monday morning
+
+# COMMAND ----------
+
+# Mark the claims feed as "delayed — DQ rejected, awaiting resubmission"
+spark.sql(f"""
+    UPDATE {fqn('5_mon_pipeline_sla_status')}
+    SET status = 'late',
+        dq_pass_rate = 0.892,
+        notes = 'DQ rejected — subrogation reversal anomaly detected, feed sent back to Claims Mgmt; new version expected Monday'
+    WHERE feed_name LIKE '%claim%'
+      AND reporting_period = '{period}'
+""")
+
+# Add a synthetic DQ failure that ties to the narrative — high failure rate on subrogation column
+# (use existing 5_mon_dq_expectation_results — add a new failing check)
+spark.sql(f"""
+    INSERT INTO {fqn('5_mon_dq_expectation_results')}
+    (reporting_period, pipeline_name, table_name, expectation_name,
+     total_records, passing_records, failing_records, pass_rate, action, evaluated_at)
+    VALUES (
+        '{period}',
+        'S.05.01 Premiums Claims Expenses',
+        '2_stg_claims_by_lob',
+        'subrogation_within_threshold',
+        14815, 13190, 1625,
+        0.8903,
+        'FAIL UPDATE',
+        TIMESTAMP'2025-10-13 14:32:00'
+    )
+""")
+
+print("  Gotcha 6: Talk-track scenario set")
+print("  -> Claims feed flagged 'late' with DQ rejection note")
+print("  -> Subrogation expectation now shows 1,625 / 14,815 failing records (89.0% pass)")
+print("  -> Supervisor agent should narrate: 'S.05.01 held — claims feed rejected, awaiting Monday resubmission'")
+print("  -> Other 3 QRTs remain clean — not at risk of missing Friday deadline")

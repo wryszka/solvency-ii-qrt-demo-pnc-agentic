@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import json
@@ -11,7 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from server.config import fqn, get_current_user
 from databricks.sdk.service.sql import StatementParameterListItem
-from server.sql import execute_query
+from server.sql import execute_query, execute_query_cached
 from server.ai import generate_review
 from server.prompts import (
     SYSTEM_PROMPT, QRT_PROMPTS, CROSS_QRT_SYSTEM, CROSS_QRT_PROMPT,
@@ -487,32 +488,39 @@ async def get_quality(qrt_id: str, period: str = Query(None)):
 
     try:
         check_defs = DQ_CHECKS.get(qrt_id, [])
-        checks = []
 
-        for check_name, table_key, constraint, fail_sql, severity in check_defs:
+        # Build all queries up-front and fire them concurrently. Each check needs
+        # a (total, failing) pair, so we kick off 2 * N queries and zip results.
+        async def _count(sql: str) -> int:
             try:
-                table = fqn(table_key)
-                pw = f"AND reporting_period = '{period}'" if period else ""
-                total_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}")
-                total = int(total_r[0]["c"]) if total_r else 0
-                fail_r = await execute_query(f"SELECT COUNT(*) AS c FROM {table} WHERE {fail_sql} {pw}")
-                failing = int(fail_r[0]["c"]) if fail_r else 0
+                rows = await execute_query_cached(sql, ttl_seconds=30)
+                return int(rows[0]["c"]) if rows else 0
             except Exception:
-                total = 0
-                failing = 0
+                return 0
 
+        coros = []
+        for check_name, table_key, constraint, fail_sql, severity in check_defs:
+            table = fqn(table_key)
+            pw = f"AND reporting_period = '{period}'" if period else ""
+            coros.append(_count(f"SELECT COUNT(*) AS c FROM {table} WHERE 1=1 {pw}"))
+            coros.append(_count(f"SELECT COUNT(*) AS c FROM {table} WHERE {fail_sql} {pw}"))
+
+        counts = await asyncio.gather(*coros)
+
+        checks = []
+        for i, (check_name, table_key, constraint, fail_sql, severity) in enumerate(check_defs):
+            total = counts[2 * i]
+            failing = counts[2 * i + 1]
             checks.append({
                 "check": check_name,
                 "constraint": constraint,
                 "table": table_key,
                 "total": total,
                 "failing": failing,
+                "passing": total - failing,
+                "status": "PASS" if failing == 0 else "FAIL",
                 "severity": severity,
             })
-
-        for c in checks:
-            c["passing"] = c["total"] - c["failing"]
-            c["status"] = "PASS" if c["failing"] == 0 else "FAIL"
 
         return {"data": checks}
     except Exception as exc:
@@ -598,31 +606,33 @@ async def get_template(qrt_id: str, period: str = Query(None)):
 
         elif qrt_id == "s2501":
             where = f"WHERE reporting_period = '{period}'" if period else f"WHERE reporting_period = {latest}"
-            # SCR waterfall + solvency summary
-            breakdown = await execute_query(f"""
-                SELECT template_row_id, template_row_label,
-                       CAST(amount_eur AS DOUBLE) AS amount_eur,
-                       model_version
-                FROM {fqn('3_qrt_s2501_scr_breakdown')} {where}
-                ORDER BY template_row_id
-            """)
-            summary = await execute_query(f"""
-                SELECT * FROM {fqn('3_qrt_s2501_summary')} {where}
-            """)
+            breakdown, summary = await asyncio.gather(
+                execute_query_cached(f"""
+                    SELECT template_row_id, template_row_label,
+                           CAST(amount_eur AS DOUBLE) AS amount_eur,
+                           model_version
+                    FROM {fqn('3_qrt_s2501_scr_breakdown')} {where}
+                    ORDER BY template_row_id
+                """, ttl_seconds=60),
+                execute_query_cached(f"SELECT * FROM {fqn('3_qrt_s2501_summary')} {where}", ttl_seconds=60),
+            )
             return {"qrt": "S.25.01", "title": "SCR — Standard Formula",
                     "format": "waterfall", "period": period,
                     "data": breakdown, "summary": summary[0] if summary else None}
 
         elif qrt_id == "s0602":
             where = f"WHERE reporting_period = '{period}'" if period else f"WHERE reporting_period = {latest}"
-            summary = await execute_query(f"""
-                SELECT * FROM {fqn('3_qrt_s0602_summary')} {where} ORDER BY cic_category_name
-            """)
-            count = await execute_query(f"""
-                SELECT COUNT(*) AS cnt,
-                       ROUND(SUM(CAST(C0170_Total_Solvency_II_Amount AS DOUBLE)), 2) AS total_sii
-                FROM {fqn('3_qrt_s0602_list_of_assets')} {where}
-            """)
+            summary, count = await asyncio.gather(
+                execute_query_cached(
+                    f"SELECT * FROM {fqn('3_qrt_s0602_summary')} {where} ORDER BY cic_category_name",
+                    ttl_seconds=60,
+                ),
+                execute_query_cached(f"""
+                    SELECT COUNT(*) AS cnt,
+                           ROUND(SUM(CAST(C0170_Total_Solvency_II_Amount AS DOUBLE)), 2) AS total_sii
+                    FROM {fqn('3_qrt_s0602_list_of_assets')} {where}
+                """, ttl_seconds=60),
+            )
             return {"qrt": "S.06.02", "title": "List of Assets",
                     "format": "summary", "period": period,
                     "data": summary,
@@ -630,15 +640,15 @@ async def get_template(qrt_id: str, period: str = Query(None)):
 
         elif qrt_id == "s2606":
             where = f"WHERE reporting_period = '{period}'" if period else f"WHERE reporting_period = {latest}"
-            breakdown = await execute_query(f"""
-                SELECT template_row_id, template_row_label,
-                       CAST(amount_eur AS DOUBLE) AS amount_eur
-                FROM {fqn('3_qrt_s2606_nl_uw_risk')} {where}
-                ORDER BY template_row_id
-            """)
-            summary = await execute_query(f"""
-                SELECT * FROM {fqn('3_qrt_s2606_summary')} {where}
-            """)
+            breakdown, summary = await asyncio.gather(
+                execute_query_cached(f"""
+                    SELECT template_row_id, template_row_label,
+                           CAST(amount_eur AS DOUBLE) AS amount_eur
+                    FROM {fqn('3_qrt_s2606_nl_uw_risk')} {where}
+                    ORDER BY template_row_id
+                """, ttl_seconds=60),
+                execute_query_cached(f"SELECT * FROM {fqn('3_qrt_s2606_summary')} {where}", ttl_seconds=60),
+            )
             return {"qrt": "S.26.06", "title": "Non-Life Underwriting Risk",
                     "format": "waterfall", "period": period,
                     "data": breakdown, "summary": summary[0] if summary else None}

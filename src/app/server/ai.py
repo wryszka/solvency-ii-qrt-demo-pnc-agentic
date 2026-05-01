@@ -150,6 +150,103 @@ async def generate_review(
     return await asyncio.to_thread(_call_llm_traced, system_prompt, user_prompt, agent_name)
 
 
+# ── Tool calling support (for supervisor agent) ──────────────────────────────
+
+def _call_llm_with_tools(
+    messages: list,
+    tools: list,
+    agent_name: str = "supervisor",
+    max_tokens: int = 2048,
+) -> dict:
+    """Call LLM with tool definitions. Returns the raw response message dict.
+
+    messages: list of {"role": "...", "content": "..."} or with tool_calls / tool_call_id
+    tools: list of {"type": "function", "function": {...}} OpenAI-style tool defs
+    """
+    client = get_workspace_client()
+    endpoint = _find_endpoint(client)
+
+    # Use the SDK's raw API call for tool support
+    import json as _json
+    from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
+
+    # Build SDK-friendly messages (tool roles need special handling)
+    sdk_messages = []
+    for m in messages:
+        role = m.get("role", "user")
+        content = m.get("content", "") or ""
+        if role == "tool":
+            # Tool result — represent as user message with structured prefix
+            sdk_messages.append(ChatMessage(
+                role=ChatMessageRole.USER,
+                content=f"[Tool result for {m.get('name','tool')} (call {m.get('tool_call_id','')[:8]})]\n{content}",
+            ))
+        elif role == "assistant":
+            # Assistant — may include tool_calls
+            tool_calls = m.get("tool_calls", [])
+            if tool_calls:
+                # Represent tool calls as text the next call can see
+                tc_text = "\n".join([
+                    f"[Tool call: {tc['function']['name']}({tc['function']['arguments']})]"
+                    for tc in tool_calls
+                ])
+                sdk_messages.append(ChatMessage(role=ChatMessageRole.ASSISTANT, content=content + "\n" + tc_text))
+            else:
+                sdk_messages.append(ChatMessage(role=ChatMessageRole.ASSISTANT, content=content))
+        elif role == "system":
+            sdk_messages.append(ChatMessage(role=ChatMessageRole.SYSTEM, content=content))
+        else:
+            sdk_messages.append(ChatMessage(role=ChatMessageRole.USER, content=content))
+
+    # Call with tools via raw HTTP since SDK doesn't expose tools cleanly
+    import urllib.request
+    import urllib.error
+    workspace_host = client.config.host.rstrip("/")
+    token = client.config.authenticate().get("Authorization", "").replace("Bearer ", "")
+
+    payload = {
+        "messages": [{"role": m.get("role"), "content": m.get("content"),
+                      **({"tool_calls": m["tool_calls"]} if m.get("tool_calls") else {}),
+                      **({"tool_call_id": m["tool_call_id"]} if m.get("tool_call_id") else {}),
+                      **({"name": m["name"]} if m.get("name") else {})}
+                     for m in messages],
+        "tools": tools,
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+    }
+
+    req = urllib.request.Request(
+        f"{workspace_host}/serving-endpoints/{endpoint}/invocations",
+        data=_json.dumps(payload).encode(),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = _json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:500]
+        raise RuntimeError(f"LLM call failed: {e.code} — {body}")
+
+    msg = data.get("choices", [{}])[0].get("message", {})
+    usage = data.get("usage", {})
+    return {
+        "message": msg,
+        "model_used": endpoint,
+        "input_tokens": usage.get("prompt_tokens", 0),
+        "output_tokens": usage.get("completion_tokens", 0),
+    }
+
+
+async def call_with_tools(messages: list, tools: list, agent_name: str = "supervisor") -> dict:
+    """Async wrapper for tool-calling LLM."""
+    import asyncio
+    return await asyncio.to_thread(_call_llm_with_tools, messages, tools, agent_name)
+
+
 def reset_endpoint_cache():
     """Reset cached endpoint (for testing or after config change)."""
     global _active_endpoint

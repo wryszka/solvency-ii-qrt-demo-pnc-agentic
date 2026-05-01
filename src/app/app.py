@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.routes import reports, approvals, monitoring, regulator, genie
+from server.routes import reports, approvals, monitoring, regulator, genie, supervisor
 from server.config import get_dashboard_id, get_genie_space_id, get_workspace_host
 
 logging.basicConfig(
@@ -18,6 +18,16 @@ logger = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
 
 
+async def _warmup_warehouse():
+    """Fire a tiny query to wake the SQL warehouse so first user request isn't slow."""
+    try:
+        from server.sql import execute_query
+        await execute_query("SELECT 1 AS warmup")
+        logger.info("Warehouse warmup completed")
+    except Exception:
+        logger.exception("Warehouse warmup failed — will retry on first request")
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     logger.info("Starting Solvency II QRT Reporting App")
@@ -26,6 +36,9 @@ async def lifespan(application: FastAPI):
         logger.info("Approvals table ready")
     except Exception:
         logger.exception("Failed to ensure approvals table — will retry on first request")
+    # Fire-and-forget warmup so we don't block app startup
+    import asyncio
+    asyncio.create_task(_warmup_warehouse())
     yield
     logger.info("Shutting down")
 
@@ -41,6 +54,7 @@ app.include_router(approvals.router)
 app.include_router(monitoring.router)
 app.include_router(regulator.router)
 app.include_router(genie.router)
+app.include_router(supervisor.router)
 
 
 @app.get("/api/health")

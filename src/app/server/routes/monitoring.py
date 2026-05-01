@@ -1,10 +1,11 @@
+import asyncio
 import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
 
 from server.config import fqn, get_current_user
-from server.sql import execute_query
+from server.sql import execute_query, execute_query_cached
 from server.ai import generate_review
 from server.prompts import DQ_TRIAGE_SYSTEM, DQ_TRIAGE_PROMPT
 from server.guardrails import validate_input, validate_output, truncate_output
@@ -129,26 +130,55 @@ async def get_feed_detail(feed_name: str):
         feed_info = FEED_MAP.get(feed_name, {"table": feed_name, "dq_pipeline": "", "dq_tables": []})
         table = feed_info["table"]
 
-        # 1. Freshness history — SLA status across all quarters
-        freshness = await execute_query(f"""
+        freshness_q = f"""
             SELECT reporting_period, feed_name, actual_arrival, sla_deadline,
                    status, row_count, dq_pass_rate, notes
             FROM {fqn('5_mon_pipeline_sla_status')}
             WHERE feed_name = '{feed_name}'
             ORDER BY reporting_period DESC
-        """)
+        """
+        completeness_q = f"""
+            SELECT reporting_period,
+                   COUNT(*) AS row_count
+            FROM {fqn(table)}
+            GROUP BY reporting_period
+            ORDER BY reporting_period DESC
+        """
+        dq_rules_q = f"""
+            SELECT expectation_name, table_name, total_records,
+                   passing_records, failing_records,
+                   ROUND(passing_records * 100.0 / NULLIF(total_records, 0), 1) AS pass_rate_pct
+            FROM {fqn('5_mon_dq_expectation_results')}
+            WHERE pipeline_name LIKE '%{feed_info["dq_pipeline"]}%'
+            AND reporting_period = (SELECT MAX(reporting_period) FROM {fqn('5_mon_dq_expectation_results')})
+            ORDER BY table_name, expectation_name
+        """
+        sample_q = f"""
+            SELECT * FROM {fqn(table)}
+            WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn(table)})
+            LIMIT 20
+        """
+        columns_q = f"DESCRIBE {fqn(table)}"
 
-        # 2. Completeness — row counts across quarters for comparison
-        try:
-            completeness = await execute_query(f"""
-                SELECT reporting_period,
-                       COUNT(*) AS row_count
-                FROM {fqn(table)}
-                GROUP BY reporting_period
-                ORDER BY reporting_period DESC
-            """)
-        except Exception:
-            completeness = []
+        # Run all 5 queries concurrently. Wrap with return_exceptions so individual
+        # missing-table failures don't sink the whole request.
+        freshness_r, completeness_r, dq_rules_r, sample_r, columns_r = await asyncio.gather(
+            execute_query_cached(freshness_q, ttl_seconds=30),
+            execute_query_cached(completeness_q, ttl_seconds=30),
+            execute_query_cached(dq_rules_q, ttl_seconds=30) if feed_info["dq_pipeline"] else asyncio.sleep(0, result=[]),
+            execute_query_cached(sample_q, ttl_seconds=30),
+            execute_query_cached(columns_q, ttl_seconds=300),
+            return_exceptions=True,
+        )
+
+        def _ok(x):
+            return [] if isinstance(x, Exception) else x
+
+        freshness = _ok(freshness_r)
+        completeness = _ok(completeness_r)
+        dq_rules = _ok(dq_rules_r)
+        sample = _ok(sample_r)
+        columns = _ok(columns_r)
 
         # Compute period-over-period change
         for i, row in enumerate(completeness):
@@ -161,35 +191,6 @@ async def get_feed_detail(feed_name: str):
             else:
                 row["prev_row_count"] = None
                 row["change_pct"] = None
-
-        # 3. DQ expectations for this feed's pipeline/tables
-        dq_rules = []
-        if feed_info["dq_pipeline"]:
-            dq_rules = await execute_query(f"""
-                SELECT expectation_name, table_name, total_records,
-                       passing_records, failing_records,
-                       ROUND(passing_records * 100.0 / NULLIF(total_records, 0), 1) AS pass_rate_pct
-                FROM {fqn('5_mon_dq_expectation_results')}
-                WHERE pipeline_name LIKE '%{feed_info["dq_pipeline"]}%'
-                AND reporting_period = (SELECT MAX(reporting_period) FROM {fqn('5_mon_dq_expectation_results')})
-                ORDER BY table_name, expectation_name
-            """)
-
-        # 4. Sample data (first 20 rows of latest period)
-        try:
-            sample = await execute_query(f"""
-                SELECT * FROM {fqn(table)}
-                WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn(table)})
-                LIMIT 20
-            """)
-        except Exception:
-            sample = []
-
-        # 5. Schema/columns
-        try:
-            columns = await execute_query(f"DESCRIBE {fqn(table)}")
-        except Exception:
-            columns = []
 
         return {
             "feed_name": feed_name,
@@ -233,17 +234,19 @@ async def investigate_reconciliation(body: dict = {}):
 
         reporting_period = target_check.get("reporting_period", "Unknown")
 
-        # Get relevant QRT summaries for context
-        summaries = {}
-        for table in ["3_qrt_s0602_summary", "3_qrt_s0501_summary", "3_qrt_s2501_summary", "3_qrt_s2606_summary"]:
-            try:
-                rows = await execute_query(f"""
-                    SELECT * FROM {fqn(table)}
-                    WHERE reporting_period = '{reporting_period}'
-                """)
-                summaries[table] = rows
-            except Exception:
-                summaries[table] = []
+        # Get relevant QRT summaries for context — fan out concurrently
+        summary_tables = ["3_qrt_s0602_summary", "3_qrt_s0501_summary", "3_qrt_s2501_summary", "3_qrt_s2606_summary"]
+        summary_results = await asyncio.gather(
+            *[execute_query_cached(
+                f"SELECT * FROM {fqn(t)} WHERE reporting_period = '{reporting_period}'",
+                ttl_seconds=60,
+            ) for t in summary_tables],
+            return_exceptions=True,
+        )
+        summaries = {
+            t: ([] if isinstance(r, Exception) else r)
+            for t, r in zip(summary_tables, summary_results)
+        }
 
         user_prompt = f"""Investigate this cross-QRT reconciliation issue for Bricksurance SE.
 Reporting period: {reporting_period}.

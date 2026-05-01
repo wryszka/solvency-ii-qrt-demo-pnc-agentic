@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, ChevronRight, Shield, BarChart3, Landmark, Flame } from 'lucide-react';
+import { ChevronRight, Shield, BarChart3, Landmark, Flame } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
+import { Skeleton } from '../components/Skeleton';
 import { fetchReports, type ReportSummary } from '../lib/api';
 
 const QRT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -47,8 +48,27 @@ export default function ReportsList() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="max-w-5xl mx-auto p-6 space-y-6">
+        <div>
+          <Skeleton className="h-7 w-40 mb-2" />
+          <Skeleton className="h-4 w-96" />
+        </div>
+        <div className="grid gap-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-slate-200 p-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="w-11 h-11 rounded-lg" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-5 w-72" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-200" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

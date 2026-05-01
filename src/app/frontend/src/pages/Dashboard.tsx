@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Loader2, ExternalLink, BarChart3, PieChart, TrendingUp, Shield, Maximize2, Minimize2 } from 'lucide-react';
+import { ExternalLink, BarChart3, PieChart, TrendingUp, Shield, Maximize2, Minimize2 } from 'lucide-react';
+import { Skeleton } from '../components/Skeleton';
 import { fetchEmbeds } from '../lib/api';
 
 const TABS = [
@@ -32,8 +33,15 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="max-w-6xl mx-auto p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-32" />
+            <Skeleton className="h-3 w-72" />
+          </div>
+          <Skeleton className="h-7 w-28" />
+        </div>
+        <div className="rounded-lg w-full animate-pulse bg-slate-200 dark:bg-slate-700/50" style={{ height: '700px' }} />
       </div>
     );
   }

@@ -1921,9 +1921,25 @@ function ModelGovernanceTab() {
 
 /* ═══════ Helpers ═══════ */
 function Spinner() {
+  // Skeleton-style placeholder so the user perceives content shape forming
+  // rather than a spinning loader sitting in space.
   return (
-    <div className="flex justify-center py-12">
-      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+    <div className="space-y-3 py-4">
+      <div className="h-4 bg-slate-200 rounded animate-pulse w-1/3" />
+      <div className="border border-slate-200 rounded-lg overflow-hidden">
+        <div className="bg-slate-50 p-3 flex gap-4 border-b border-slate-200">
+          {[0, 1, 2, 3].map((c) => (
+            <div key={c} className="h-3 bg-slate-200 rounded animate-pulse flex-1" />
+          ))}
+        </div>
+        {[0, 1, 2, 3, 4].map((r) => (
+          <div key={r} className="p-3 flex gap-4 border-b border-slate-100 last:border-b-0">
+            {[0, 1, 2, 3].map((c) => (
+              <div key={c} className="h-3 bg-slate-200 rounded animate-pulse flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
