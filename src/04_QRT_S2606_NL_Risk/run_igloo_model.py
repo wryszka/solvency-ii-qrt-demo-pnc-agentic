@@ -34,8 +34,15 @@ except Exception:
 spark.sql(f"USE CATALOG {catalog}")
 spark.sql(f"USE SCHEMA {schema}")
 
-# Get the latest reporting period from 1_raw_exposures
-rp = spark.sql("SELECT MAX(reporting_period) FROM 1_raw_exposures").first()[0]
+# Reporting period: explicit widget wins, otherwise pick the latest available.
+try:
+    rp_widget = dbutils.widgets.get("reporting_period")
+except Exception:
+    rp_widget = ""
+if rp_widget:
+    rp = rp_widget
+else:
+    rp = spark.sql("SELECT MAX(reporting_period) FROM 1_raw_exposures").first()[0]
 
 run_id = str(uuid.uuid4())[:8]
 print(f"Catalog:           {catalog}")

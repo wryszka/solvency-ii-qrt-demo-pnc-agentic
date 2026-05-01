@@ -74,4 +74,3 @@ SELECT
         AS reserve_risk_eur
 
 FROM LIVE.`1_raw_volume_measures`
-WHERE reporting_period = (SELECT MAX(reporting_period) FROM LIVE.`1_raw_volume_measures`)

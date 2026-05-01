@@ -81,4 +81,3 @@ SELECT
     is_listed
 
 FROM LIVE.`1_raw_assets`
-WHERE reporting_period = (SELECT MAX(reporting_period) FROM LIVE.`1_raw_assets`)
