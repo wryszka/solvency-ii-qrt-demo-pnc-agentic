@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   Loader2, Send, Bot, User, ChevronDown, ChevronRight,
-  MessageSquare, Database, Zap, Search, GitCompare, FlaskConical, ShieldCheck,
+  Database, Zap, Search, GitCompare, FlaskConical, ShieldCheck,
   Wrench, Cloud, Anchor, Cog, FileSearch, Sparkles,
 } from 'lucide-react';
 import {
-  fetchRegulatorExamples, askGenie, askSupervisorStream,
+  fetchRegulatorExamples, askSupervisorStream,
   type RegulatorExampleCategory,
 } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
@@ -53,7 +53,6 @@ const TOOL_LABELS: Record<string, string> = {
 
 export default function RegulatorQA() {
   const [examples, setExamples] = useState<RegulatorExampleCategory[]>([]);
-  const [genieExamples, setGenieExamples] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -63,9 +62,8 @@ export default function RegulatorQA() {
 
   useEffect(() => {
     fetchRegulatorExamples()
-      .then((r: { examples: RegulatorExampleCategory[]; genie_examples?: string[] }) => {
+      .then((r: { examples: RegulatorExampleCategory[] }) => {
         setExamples(r.examples);
-        setGenieExamples(r.genie_examples || []);
       })
       .catch((e) => console.error('Failed to fetch examples:', e));
   }, []);
@@ -240,8 +238,6 @@ export default function RegulatorQA() {
         </div>
       </div>
 
-      {/* Genie direct query (kept for power users) */}
-      <GeniePane examples={genieExamples} />
     </div>
   );
 }
@@ -452,125 +448,3 @@ function AgentDiagram({ show, onToggle }: { show: boolean; onToggle: () => void 
   );
 }
 
-/* ═══════ Genie Pane (kept for direct queries) ═══════ */
-function GeniePane({ examples }: { examples: string[] }) {
-  const [question, setQuestion] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ answer: string; sql: string | null; columns: string[]; rows: (string | null)[][] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleAsk(q?: string) {
-    const query = (q || question).trim();
-    if (!query || loading) return;
-    setQuestion('');
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const r = await askGenie(query);
-      setResult(r);
-    } catch (e: unknown) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="rounded-lg border-2 border-blue-200 bg-blue-50/30 p-4 flex flex-col">
-      <div className="flex items-center gap-2 mb-3">
-        <Database className="w-5 h-5 text-blue-600" />
-        <div>
-          <div className="text-sm font-bold text-blue-900">Direct AI/BI Genie query</div>
-          <div className="text-[10px] text-blue-500">For power users — bypass the supervisor and ask Genie directly</div>
-        </div>
-      </div>
-
-      {!result && !loading && !error && (
-        <div className="space-y-1 mb-3">
-          {examples.map((q) => (
-            <button
-              key={q}
-              onClick={() => handleAsk(q)}
-              className="w-full text-left px-2.5 py-1.5 rounded-md border border-blue-100 hover:border-blue-300 hover:bg-blue-100/50 text-xs text-gray-700 hover:text-blue-800 transition-colors flex items-start gap-1.5"
-            >
-              <MessageSquare className="w-3 h-3 text-blue-400 mt-0.5 shrink-0" />
-              {q}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {loading && (
-        <div className="flex-1 flex items-center justify-center py-8">
-          <div className="text-center">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
-            <p className="text-xs text-gray-500 mt-2">Querying data...</p>
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-md px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
-      )}
-
-      {result && (
-        <div className="flex-1 space-y-2 mb-3">
-          <p className="text-xs text-gray-700">{result.answer}</p>
-          {result.sql && (
-            <details className="text-xs">
-              <summary className="text-blue-600 cursor-pointer font-medium">Show SQL</summary>
-              <pre className="mt-1 p-2 bg-gray-900 text-green-300 rounded text-[10px] overflow-x-auto">{result.sql}</pre>
-            </details>
-          )}
-          {result.columns.length > 0 && result.rows.length > 0 && (
-            <div className="overflow-x-auto max-h-48 border border-blue-200 rounded">
-              <table className="min-w-full text-[10px]">
-                <thead className="bg-blue-50 sticky top-0">
-                  <tr>
-                    {result.columns.map((col) => (
-                      <th key={col} className="px-2 py-1 text-left font-semibold text-blue-800 border-b whitespace-nowrap">{col}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.rows.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-blue-50/30'}>
-                      {row.map((val, j) => (
-                        <td key={j} className="px-2 py-1 border-b border-blue-100 whitespace-nowrap font-mono text-gray-700">
-                          {val ?? <span className="text-gray-300">null</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <button onClick={() => setResult(null)} className="text-[10px] text-blue-600 hover:text-blue-700 font-medium">
-            Ask another question
-          </button>
-        </div>
-      )}
-
-      <div className="flex gap-1.5 mt-auto">
-        <input
-          type="text"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
-          placeholder="Ask Genie directly…"
-          disabled={loading}
-          className="flex-1 border border-blue-200 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-        />
-        <button
-          onClick={() => handleAsk()}
-          disabled={loading || !question.trim()}
-          className="px-2.5 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-xs"
-        >
-          <Send className="w-3 h-3" />
-        </button>
-      </div>
-    </div>
-  );
-}
