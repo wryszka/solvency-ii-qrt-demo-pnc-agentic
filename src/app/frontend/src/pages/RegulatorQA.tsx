@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Loader2, Send, Bot, User, ChevronDown, ChevronRight,
   Database, Zap, Search, GitCompare, FlaskConical, ShieldCheck,
-  Wrench, Cloud, Anchor, Cog, FileSearch, Sparkles,
+  Wrench, Cloud, Anchor, Cog, FileSearch, Sparkles, ExternalLink,
 } from 'lucide-react';
 import {
   fetchRegulatorExamples, askSupervisorStream,
@@ -56,7 +57,7 @@ export default function RegulatorQA() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showDiagram, setShowDiagram] = useState(true);
+  const [showDiagram, setShowDiagram] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -173,9 +174,6 @@ export default function RegulatorQA() {
         </p>
       </div>
 
-      {/* Architecture diagram */}
-      <AgentDiagram show={showDiagram} onToggle={() => setShowDiagram(!showDiagram)} />
-
       {/* Chat */}
       <div className="bg-white rounded-lg border-2 border-violet-200 overflow-hidden">
         <div className="px-4 py-3 bg-violet-50 border-b border-violet-200 flex items-center gap-2">
@@ -238,6 +236,8 @@ export default function RegulatorQA() {
         </div>
       </div>
 
+      {/* Architecture diagram (below the chat) */}
+      <AgentDiagram show={showDiagram} onToggle={() => setShowDiagram(!showDiagram)} />
     </div>
   );
 }
@@ -358,12 +358,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
 /* ═══════ Architecture diagram ═══════ */
 function AgentDiagram({ show, onToggle }: { show: boolean; onToggle: () => void }) {
-  const liveAgents = [
-    { name: 'Pipeline & DQ', icon: ShieldCheck, color: 'green' },
-    { name: 'Approvals', icon: FileSearch, color: 'green' },
-    { name: 'Cross-QRT', icon: GitCompare, color: 'green' },
-    { name: 'Stochastic', icon: FlaskConical, color: 'green' },
-    { name: 'AI/BI Genie', icon: Database, color: 'blue' },
+  const navigate = useNavigate();
+  const liveAgents: Array<{ name: string; icon: React.ComponentType<{ className?: string }>; color: 'green' | 'blue'; href: string; hint: string }> = [
+    { name: 'Pipeline & DQ', icon: ShieldCheck, color: 'green', href: '/monitor', hint: 'SLA + DQ status' },
+    { name: 'Approvals', icon: FileSearch, color: 'green', href: '/reports', hint: 'Approval workflow' },
+    { name: 'Cross-QRT', icon: GitCompare, color: 'green', href: '/monitor', hint: 'Reconciliation checks' },
+    { name: 'Stochastic', icon: FlaskConical, color: 'green', href: '/report/s2606', hint: 'NL UW Risk model' },
+    { name: 'AI/BI Genie', icon: Database, color: 'blue', href: '/genie', hint: 'Direct data Q&A' },
   ];
   const upcomingAgents = [
     { name: 'Reinsurance Audit', icon: Wrench },
@@ -410,15 +411,23 @@ function AgentDiagram({ show, onToggle }: { show: boolean; onToggle: () => void 
           <div className="grid grid-cols-5 gap-3 mb-6">
             {liveAgents.map((agent) => {
               const colorClass = agent.color === 'blue'
-                ? 'border-blue-300 bg-blue-50/50'
-                : 'border-green-300 bg-green-50/50';
+                ? 'border-blue-300 bg-blue-50/50 hover:border-blue-500 hover:bg-blue-100/60'
+                : 'border-green-300 bg-green-50/50 hover:border-green-500 hover:bg-green-100/60';
               const iconClass = agent.color === 'blue' ? 'text-blue-600' : 'text-green-600';
               const labelClass = agent.color === 'blue' ? 'text-blue-900' : 'text-green-900';
+              const subClass = agent.color === 'blue' ? 'text-blue-500' : 'text-green-700';
               return (
-                <div key={agent.name} className={`rounded-lg border-2 ${colorClass} p-3 text-center`}>
+                <button
+                  key={agent.name}
+                  onClick={() => navigate(agent.href)}
+                  title={`Open: ${agent.hint}`}
+                  className={`group rounded-lg border-2 ${colorClass} p-3 text-center transition-all relative cursor-pointer`}
+                >
+                  <ExternalLink className={`w-3 h-3 ${iconClass} absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity`} />
                   <agent.icon className={`w-5 h-5 ${iconClass} mx-auto mb-1`} />
                   <div className={`text-xs font-semibold ${labelClass}`}>{agent.name}</div>
-                </div>
+                  <div className={`text-[10px] ${subClass} mt-0.5`}>{agent.hint}</div>
+                </button>
               );
             })}
           </div>
