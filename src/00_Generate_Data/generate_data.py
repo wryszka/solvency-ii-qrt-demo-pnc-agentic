@@ -256,6 +256,83 @@ print(f"Seasonal factor: {seasonal}, Growth factor: {growth:.4f}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 0. Config tables
+# MAGIC
+# MAGIC Static reference + scenario configuration that persists across quarters.
+# MAGIC These tables are deterministic — overwritten every run, so the latest
+# MAGIC definition always wins.
+
+# COMMAND ----------
+
+# ── 0a. Feed SLA configuration ──────────────────────────────────────
+# Drives the Control Tower freshness check. Each row is one expected feed
+# with the SLA in business days after period close. The 5_mon_pipeline_sla_status
+# table joins against this to compute on_time / late / missing per period.
+feed_sla_rows = [
+    # Non-life
+    {"feed_name": "1_raw_assets",        "source_system": "Custodian",   "sla_business_days": 3, "criticality": "high",   "owner_team": "Investments"},
+    {"feed_name": "1_raw_premiums",      "source_system": "Policy Mgmt", "sla_business_days": 3, "criticality": "high",   "owner_team": "Finance"},
+    {"feed_name": "1_raw_claims",        "source_system": "Claims Mgmt", "sla_business_days": 3, "criticality": "high",   "owner_team": "Claims"},
+    {"feed_name": "1_raw_expenses",      "source_system": "ERP",         "sla_business_days": 5, "criticality": "medium", "owner_team": "Finance"},
+    {"feed_name": "1_raw_reinsurance",   "source_system": "RI Broker",   "sla_business_days": 3, "criticality": "high",   "owner_team": "Reinsurance"},
+    {"feed_name": "1_raw_risk_factors",  "source_system": "Market Data", "sla_business_days": 2, "criticality": "high",   "owner_team": "Risk"},
+    {"feed_name": "1_raw_exposures",     "source_system": "Underwriting","sla_business_days": 5, "criticality": "medium", "owner_team": "Underwriting"},
+    # Life
+    {"feed_name": "1_raw_life_policies",            "source_system": "Life Admin",    "sla_business_days": 3, "criticality": "high",   "owner_team": "Life Ops"},
+    {"feed_name": "1_raw_life_claims",              "source_system": "Life Admin",    "sla_business_days": 3, "criticality": "high",   "owner_team": "Life Ops"},
+    {"feed_name": "1_raw_life_lapses",              "source_system": "Life Admin",    "sla_business_days": 5, "criticality": "medium", "owner_team": "Life Actuarial"},
+    {"feed_name": "1_raw_life_mortality_experience","source_system": "Life Actuarial","sla_business_days": 7, "criticality": "medium", "owner_team": "Life Actuarial"},
+    {"feed_name": "1_raw_life_assumptions",         "source_system": "Life Actuarial","sla_business_days": 7, "criticality": "high",   "owner_team": "Life Actuarial"},
+]
+write_table(pd.DataFrame(feed_sla_rows), "0_cfg_feed_sla",
+            "SLA configuration per source data feed — drives Control Tower freshness checks")
+
+# ── 0b. BaFin questions fixture ─────────────────────────────────────
+# Pre-staged regulator questions used by the Regulator Q&A workflow.
+# Q4 2025 carries one realistic post-submission inquiry as a fixture.
+bafin_rows = [
+    {
+        "question_id": "BFN-2026-001",
+        "regulator": "BaFin",
+        "received_date": "2026-01-26",  # 2 weeks after Q4 2025 submission
+        "reporting_period": "2025-Q4",
+        "topic": "Property reserves Q4 2025",
+        "question": (
+            "Please explain the 240bp combined ratio increase in Property line "
+            "Q4 vs Q3 2025, with reference to your reserving methodology and "
+            "any catastrophe events."
+        ),
+        "expected_context": "Storm event Dec 2025; reserve methodology; materiality",
+        "status": "open",
+        "due_date": "2026-02-09",
+    },
+]
+write_table(pd.DataFrame(bafin_rows), "0_cfg_bafin_questions",
+            "Pre-staged regulator (BaFin) questions used by the Regulator Q&A workflow")
+
+# ── 0c. Assumption versions ─────────────────────────────────────────
+# Models used to compute reserves / SCR have versioned assumption sets.
+# This table catalogues which assumption version was active each period.
+assumption_rows = [
+    {"asset_class": "life", "version": "2024-v1", "effective_from": "2024-01-01", "effective_to": "2024-12-31",
+     "summary": "Base mortality DAV2008T; lapse curve 2024 calibration; risk-free curve 2024-Q4 EIOPA"},
+    {"asset_class": "life", "version": "2025-v1", "effective_from": "2025-01-01", "effective_to": "2025-12-31",
+     "summary": "Updated mortality (-2% mortality improvement); lapse 2025 calibration; risk-free 2025-Q4 EIOPA"},
+    {"asset_class": "life", "version": "2026-v1-candidate", "effective_from": "2026-01-01", "effective_to": None,
+     "summary": "Higher unit-linked lapse stress (+15%); annuitant longevity updated; candidate for Q1 2026 cycle"},
+    {"asset_class": "nonlife", "version": "2024-v1", "effective_from": "2024-01-01", "effective_to": "2024-12-31",
+     "summary": "Standard formula 2024 USP; cat scenarios calibrated 2023"},
+    {"asset_class": "nonlife", "version": "2025-v1", "effective_from": "2025-01-01", "effective_to": "2025-12-31",
+     "summary": "Standard formula 2025 USP; cat scenarios refreshed for European storm risk"},
+    {"asset_class": "nonlife", "version": "2026-v1-candidate", "effective_from": "2026-01-01", "effective_to": None,
+     "summary": "Tighter NL UW correlation (~+1.5%); higher op risk parameter (~+1%); candidate for Q1 2026"},
+]
+write_table(pd.DataFrame(assumption_rows), "0_cfg_assumption_versions",
+            "Versioned actuarial assumption sets — Champion + Challenger calibrations")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 1. Counterparties
 # MAGIC
 # MAGIC Master register — written once, not per-quarter.
@@ -522,6 +599,33 @@ for i in range(n_oth):
     idx += 1
 
 df_assets = pd.DataFrame(assets_rows)
+
+# ── Pain E — duplicate custodian bond entry in 2025-Q4 ──
+# One Q4 row has an extra entry for the same ISIN with a slightly different
+# valuation_date — total assets in S.06.02 will be exactly EUR 2_300_000
+# higher than what own-funds reconciliation reflects. Discoverable by
+# grouping assets by ISIN and looking for duplicates.
+PAIN_DUPE_ASSET = (reporting_period == "2025-Q4")
+if PAIN_DUPE_ASSET:
+    # Pick a representative bond with a known ISIN and valuation
+    bond_rows = df_assets[df_assets["asset_class"].isin(["corporate_bond", "sovereign_bond"])]
+    if len(bond_rows) > 0:
+        # Choose a row to duplicate, scaling its sii_value to exactly 2.3M
+        target = bond_rows.iloc[0].to_dict()
+        duplicate = dict(target)
+        duplicate["sii_value"] = 2_300_000.00
+        duplicate["market_value"] = 2_300_000.00
+        # Same ISIN, slightly different valuation date — the discoverable clue
+        if "valuation_date" in duplicate and duplicate["valuation_date"] is not None:
+            try:
+                d = pd.to_datetime(duplicate["valuation_date"]).date() - timedelta(days=1)
+                duplicate["valuation_date"] = d
+            except Exception:
+                pass
+        # Distinct asset_id so DLT row constraints don't drop it, but ISIN matches
+        duplicate["asset_id"] = f"{target.get('asset_id', 'A')}-DUP"
+        df_assets = pd.concat([df_assets, pd.DataFrame([duplicate])], ignore_index=True)
+
 write_quarterly_table(df_assets, "1_raw_assets", "Investment portfolio — quarter-end snapshot")
 
 # COMMAND ----------
@@ -612,10 +716,31 @@ write_quarterly_table(pd.DataFrame(premiums), "1_raw_premiums",
 # COMMAND ----------
 
 claims = []
+PROPERTY_LOB = 7  # Fire and other property insurance
+PAIN_PROPERTY_STORM = (reporting_period == "2025-Q4")
+PAIN_LEGACY_DQ_BREAK = (reporting_period == "2025-Q4")
+
 for lob in LOB_CONFIG:
     n_claims = int(15000 * lob["gwp_share"]) + rng.randint(-50, 50)
+
+    # Pain C — December storm: concentrate 60% of property claim count in the
+    # last 14 days of December, with a fat-tailed amount distribution. The
+    # incurred uplift drives ~+18% on Q4 property BEL via the existing reserve
+    # mapping.
+    storm_concentrated = (PAIN_PROPERTY_STORM and lob["code"] == PROPERTY_LOB)
+    storm_n = int(n_claims * 0.60) if storm_concentrated else 0
+
     for j in range(n_claims):
-        severity = to_eur(rng.lognormal(LOB_SEVERITY_MU[lob["code"]], LOB_SEVERITY_SIGMA[lob["code"]]))
+        is_storm = storm_concentrated and j < storm_n
+
+        if is_storm:
+            # Storm severity: many small + several large (long-tail)
+            base_mu = LOB_SEVERITY_MU[lob["code"]] + 0.30
+            base_sig = LOB_SEVERITY_SIGMA[lob["code"]] + 0.40
+            severity = to_eur(rng.lognormal(base_mu, base_sig))
+        else:
+            severity = to_eur(rng.lognormal(LOB_SEVERITY_MU[lob["code"]], LOB_SEVERITY_SIGMA[lob["code"]]))
+
         paid_pct = rng.uniform(0.3, 1.0)
         gross_paid = to_eur(severity * paid_pct)
         gross_incurred = to_eur(severity)
@@ -623,10 +748,15 @@ for lob in LOB_CONFIG:
         ri_paid = to_eur(gross_paid * cession * rng.uniform(0.8, 1.2))
         ri_incurred = to_eur(gross_incurred * cession * rng.uniform(0.8, 1.2))
 
-        loss_date = random_date(
-            date(rp_year, (rp_quarter-1)*3+1, 1),
-            rpt_date
-        )[0]
+        if is_storm:
+            # Concentrate loss_date in Dec 18-31 of reporting year
+            day_offset = rng.randint(0, 14)
+            loss_date = date(rp_year, 12, 18) + timedelta(days=int(day_offset))
+        else:
+            loss_date = random_date(
+                date(rp_year, (rp_quarter-1)*3+1, 1),
+                rpt_date
+            )[0]
 
         claims.append({
             "claim_id": f"CLM-{reporting_period}-{lob['code']}-{j+1:06d}",
@@ -646,10 +776,46 @@ for lob in LOB_CONFIG:
             "net_incurred": to_eur(gross_incurred - ri_incurred),
             "status": rng.choice(["open","open","settled","reopened"], p=[0.4,0.3,0.25,0.05]),
             "currency": "EUR",
+            # Pain B/C tagging: system migration source + storm event tag.
+            # In Q1-Q3 every row is core_v3; in Q4 a 47-row legacy block is
+            # injected below, and storm-concentrated rows get an event_id.
+            "system_source": "core_v3",
+            "event_id": ("storm_dec_2025" if is_storm else None),
+        })
+
+# ── Pain B — 47 legacy_pre_migration rows with negative paid_amount in Q4 ──
+# These will be quarantined by the existing DLT expectation that drops
+# negative paid amounts. The system_source field is the discoverable clue.
+if PAIN_LEGACY_DQ_BREAK:
+    for k in range(47):
+        # Spread across LoBs proportional to GWP share, but use a known mix
+        lob = LOB_CONFIG[k % len(LOB_CONFIG)]
+        # Legacy system reported these as REVERSALS — negative paid amount
+        bad_amount = -1.0 * float(rng.uniform(50, 5000))
+        claims.append({
+            "claim_id": f"CLM-{reporting_period}-LEGACY-{k+1:04d}",
+            "policy_id": f"POL{rng.randint(1, 20001):06d}",
+            "lob_code": lob["code"],
+            "lob_name": lob["name"],
+            "reporting_period": reporting_period,
+            "loss_date": date(rp_year, 11, 1) + timedelta(days=int(rng.randint(0, 60))),
+            "notification_date": date(rp_year, 12, 1),
+            "cause": "subrogation_reversal",
+            "gross_paid": to_eur(bad_amount),     # negative — will fail DLT EXPECT
+            "gross_incurred": to_eur(bad_amount),
+            "gross_reserved": to_eur(0.0),
+            "reinsurers_share_paid": to_eur(0.0),
+            "reinsurers_share_incurred": to_eur(0.0),
+            "net_paid": to_eur(bad_amount),
+            "net_incurred": to_eur(bad_amount),
+            "status": "settled",
+            "currency": "EUR",
+            "system_source": "legacy_pre_migration",  # the discoverable clue
+            "event_id": None,
         })
 
 write_quarterly_table(pd.DataFrame(claims), "1_raw_claims",
-            "Claims transactions — loss events with paid/incurred/reserved")
+            "Claims transactions — loss events with paid/incurred/reserved (system_source tags migration cohort)")
 
 # COMMAND ----------
 
@@ -825,6 +991,435 @@ write_quarterly_table(pd.DataFrame(tri_rows), "1_raw_claims_triangles",
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 8L. Life Book (composite insurer — life side of the balance sheet)
+# MAGIC
+# MAGIC Six bronze tables matching the depth of the non-life side. Together they
+# MAGIC support life best-estimate liability calculation, S.12.01 (Life TPs), and
+# MAGIC the Prophet mock engine that produces life UW SCR sub-modules.
+
+# COMMAND ----------
+
+# ── Life book reference data ─────────────────────────────────────────
+LIFE_LOBS = [
+    # (code, eiopa_lob, internal_name, mix_share, mean_sa_eur, sa_sigma, premium_pct,
+    #  mean_age, age_sigma, base_lapse_pa, in_force_target_at_q1_2025)
+    {"code": 29, "lob": "with_profit",  "name": "Insurance with profit participation",
+     "mix": 0.25, "mean_sa": 40_000,  "sa_sigma": 0.7, "premium_pct": 0.020,
+     "mean_age": 58, "age_sigma": 10, "base_lapse": 0.040, "in_force_target": 12500},
+    {"code": 30, "lob": "unit_linked", "name": "Index-linked and unit-linked insurance",
+     "mix": 0.35, "mean_sa": 25_000,  "sa_sigma": 0.9, "premium_pct": 0.025,
+     "mean_age": 45, "age_sigma": 12, "base_lapse": 0.070, "in_force_target": 17500},
+    {"code": 31, "lob": "term",        "name": "Other life insurance — Term",
+     "mix": 0.20, "mean_sa": 100_000, "sa_sigma": 0.8, "premium_pct": 0.003,
+     "mean_age": 40, "age_sigma": 9,  "base_lapse": 0.080, "in_force_target": 10000},
+    {"code": 32, "lob": "whole_of_life","name": "Other life insurance — Whole of life",
+     "mix": 0.10, "mean_sa": 30_000,  "sa_sigma": 0.6, "premium_pct": 0.050,
+     "mean_age": 70, "age_sigma": 8,  "base_lapse": 0.030, "in_force_target": 5000},
+    {"code": 33, "lob": "annuity",     "name": "Annuities stemming from non-life contracts",
+     "mix": 0.05, "mean_sa": 15_000,  "sa_sigma": 0.5, "premium_pct": 0.000,
+     "mean_age": 75, "age_sigma": 7,  "base_lapse": 0.005, "in_force_target": 2500},
+    {"code": 34, "lob": "health_slt",  "name": "Health SLT insurance",
+     "mix": 0.05, "mean_sa": 5_000,   "sa_sigma": 0.4, "premium_pct": 0.040,
+     "mean_age": 50, "age_sigma": 11, "base_lapse": 0.100, "in_force_target": 2500},
+]
+
+# Simplified mortality table (qx, base) — derived from DAV2008T-style aggregate.
+# 5-year age bands; we interpolate by age inside a band.
+MORTALITY_BANDS = {
+    20: 0.00050, 25: 0.00060, 30: 0.00075, 35: 0.00100, 40: 0.00150,
+    45: 0.00220, 50: 0.00330, 55: 0.00500, 60: 0.00780, 65: 0.01200,
+    70: 0.01900, 75: 0.03100, 80: 0.05300, 85: 0.09000, 90: 0.15000,
+    95: 0.25000, 100: 0.40000,
+}
+def qx(age: int) -> float:
+    """Annual mortality rate for an age (interpolated linearly between bands)."""
+    age = max(20, min(100, age))
+    lower = (age // 5) * 5
+    upper = lower + 5
+    if upper > 100:
+        return MORTALITY_BANDS[100]
+    q_lo = MORTALITY_BANDS[lower]
+    q_hi = MORTALITY_BANDS[min(upper, 100)]
+    frac = (age - lower) / 5
+    return q_lo + (q_hi - q_lo) * frac
+
+LIFE_COUNTRY_WEIGHTS = {"DE": 0.40, "FR": 0.30, "IT": 0.20, "NL": 0.05, "BE": 0.03, "ES": 0.02}
+
+# Total in-force target ≈ 50_000
+TOTAL_LIFE_POLICIES = sum(l["in_force_target"] for l in LIFE_LOBS)
+
+print(f"Life book design: {TOTAL_LIFE_POLICIES} in-force policies across {len(LIFE_LOBS)} LoBs")
+
+# COMMAND ----------
+
+# ── 8L.1 — 1_raw_life_policies (master, written once) ───────────────
+# Each policy has: id, lob, country, age_at_issue, current_age, sex, sum_assured,
+# annual_premium, issue_date, status (in_force/lapsed/matured/dead), exit_date.
+# We generate the *book as of 2025-12-31* and then derive in-force at any past
+# date using issue_date + exit_date filters.
+
+# Run only on Q1 of any year — master table doesn't need quarterly regeneration
+LIFE_MASTER_TABLE = "1_raw_life_policies"
+if not table_exists(LIFE_MASTER_TABLE):
+    rng_life = np.random.RandomState(base_seed + 1000)
+    # Issue dates spread over 30 years (1996-01-01 through 2025-12-31) to simulate
+    # an established book with a realistic duration distribution.
+    issue_start = date(1996, 1, 1)
+    issue_end = date(2025, 12, 31)
+    issue_span_days = (issue_end - issue_start).days
+
+    rows = []
+    pid = 100_000_000
+    for lob in LIFE_LOBS:
+        n = lob["in_force_target"]
+        # Generate roughly 1.7x policies — some lapsed/matured before 2025-12-31
+        n_total = int(n * 1.7)
+        # Issue date: more recent issues are more likely to still be in-force
+        # so weight issue_date to be more recent (right-skewed)
+        issue_offset = (rng_life.beta(2.0, 1.5, size=n_total) * issue_span_days).astype(int)
+        issue_dates = pd.to_datetime(pd.Timestamp(issue_start)) + pd.to_timedelta(issue_offset, unit="D")
+
+        ages_at_issue = np.clip(
+            rng_life.normal(lob["mean_age"] - 5, lob["age_sigma"], n_total).round().astype(int),
+            18, 90
+        )
+        sex = rng_life.choice(["M", "F"], size=n_total, p=[0.52, 0.48])
+        countries = rng_life.choice(
+            list(LIFE_COUNTRY_WEIGHTS.keys()),
+            size=n_total,
+            p=list(LIFE_COUNTRY_WEIGHTS.values()),
+        )
+
+        # Sum assured / income — log-normal scaled to LoB mean
+        sa = np.exp(rng_life.normal(np.log(lob["mean_sa"]), lob["sa_sigma"], n_total))
+        sa = np.round(np.clip(sa, lob["mean_sa"] * 0.1, lob["mean_sa"] * 25), 2)
+
+        # Annual premium — % of SA (annuities are single-premium; we record purchase price)
+        if lob["lob"] == "annuity":
+            annual_premium = np.zeros(n_total)
+            single_premium = np.round(sa * 12, 2)  # 12x annual income as approx purchase price
+        else:
+            annual_premium = np.round(sa * lob["premium_pct"], 2)
+            single_premium = np.zeros(n_total)
+
+        # Decide who's still in-force at 2025-12-31. We assume:
+        #   - constant exit hazard at lob["base_lapse"] per year (simple Markov)
+        #   - some fraction matured naturally for term/WoL based on policy term
+        years_held = ((pd.Timestamp("2025-12-31") - issue_dates) / pd.Timedelta(days=365.25)).values
+        # Survival to 2025-12-31 for the in-force decision
+        survival_prob = (1 - lob["base_lapse"]) ** np.maximum(years_held, 0)
+        # Add mortality drag — coarse but enough for the demo
+        mortality_drag = np.array([1 - qx(int(a))*y*0.5 for a, y in zip(ages_at_issue, np.maximum(years_held, 0))])
+        survival_prob = np.clip(survival_prob * mortality_drag, 0.05, 1.0)
+        random_draw = rng_life.random(n_total)
+        in_force_at_2025q4 = random_draw < survival_prob
+
+        # Take the first n that are in-force; fill the rest with not-in-force to reach n_total
+        # (reorder so the number of in-force at end-of-2025 ≈ in_force_target)
+        order = np.argsort(~in_force_at_2025q4)  # in-force first
+        # Keep all rows; the in_force flag drives status
+        for k in range(n_total):
+            i = order[k] if k < n else order[k]
+            still_in_force = bool(in_force_at_2025q4[i])
+            if still_in_force:
+                status = "in_force"
+                exit_date_val = None
+            else:
+                # Lapsed somewhere between issue_date and 2025-12-31
+                lapse_offset = rng_life.uniform(0.2, 0.95) * max(years_held[i], 0.1) * 365
+                exit_dt = issue_dates[i] + pd.to_timedelta(int(lapse_offset), unit="D")
+                if exit_dt > pd.Timestamp("2025-12-31"):
+                    exit_dt = pd.Timestamp("2025-12-31")
+                # Mortality vs lapse mix — older policyholders more likely "deceased"
+                if rng_life.random() < (qx(int(ages_at_issue[i]) + int(years_held[i])) * 5):
+                    status = "deceased"
+                else:
+                    status = "lapsed" if lob["lob"] != "annuity" else "matured"
+                exit_date_val = exit_dt.date().isoformat()
+
+            current_age = int(ages_at_issue[i] + years_held[i])
+            rows.append({
+                "policy_id": f"L{pid + k:09d}",
+                "lob_code": lob["code"],
+                "lob_name": lob["lob"],
+                "lob_eiopa_name": lob["name"],
+                "country": countries[i],
+                "currency": "EUR",
+                "sex": sex[i],
+                "age_at_issue": int(ages_at_issue[i]),
+                "current_age": current_age,
+                "issue_date": issue_dates[i].date().isoformat(),
+                "status": status,
+                "exit_date": exit_date_val,
+                "sum_assured_eur": float(sa[i]) if lob["lob"] != "annuity" else 0.0,
+                "annuity_income_eur": float(sa[i]) if lob["lob"] == "annuity" else 0.0,
+                "annual_premium_eur": float(annual_premium[i]),
+                "single_premium_eur": float(single_premium[i]),
+                "premium_frequency": "annual" if annual_premium[i] > 0 else "single",
+            })
+        pid += n_total
+
+    write_table(pd.DataFrame(rows), LIFE_MASTER_TABLE,
+                "Life policy register — full book (in_force, lapsed, deceased, matured)")
+else:
+    print(f"  {LIFE_MASTER_TABLE}: already exists — skipping master regeneration")
+
+# COMMAND ----------
+
+# ── 8L.2 — 1_raw_life_assumptions (master, versioned per asset class) ──
+# Granular per-(LoB × parameter × version) view — overwritten so latest wins.
+LIFE_ASSUMPTIONS_TABLE = "1_raw_life_assumptions"
+assumption_rows = []
+# Active assumption set per period
+period_to_version = {
+    "2024-Q1": "2024-v1", "2024-Q2": "2024-v1", "2024-Q3": "2024-v1", "2024-Q4": "2024-v1",
+    "2025-Q1": "2025-v1", "2025-Q2": "2025-v1", "2025-Q3": "2025-v1", "2025-Q4": "2025-v1",
+}
+for lob in LIFE_LOBS:
+    for version, calibration_year, lapse_uplift, mortality_uplift in [
+        ("2024-v1", 2024, 1.00, 1.000),
+        ("2025-v1", 2025, 1.00, 0.980),  # 2% mortality improvement
+        ("2026-v1-candidate", 2026, 1.15, 0.975),  # +15% lapse stress for UL; further mortality update
+    ]:
+        # Lapse stress only really moves unit-linked in the candidate — others unchanged
+        if version == "2026-v1-candidate" and lob["lob"] != "unit_linked":
+            applied_lapse_uplift = 1.05  # small uplift for everything else
+        else:
+            applied_lapse_uplift = lapse_uplift
+        assumption_rows.append({
+            "version": version,
+            "calibration_year": calibration_year,
+            "lob_code": lob["code"],
+            "lob_name": lob["lob"],
+            "base_lapse_rate_pa": round(lob["base_lapse"], 4),
+            "stressed_lapse_rate_pa": round(lob["base_lapse"] * applied_lapse_uplift, 4),
+            "mortality_multiplier": round(mortality_uplift, 4),
+            "expense_per_policy_eur": 65.0 if version != "2026-v1-candidate" else 70.0,
+            "discount_curve_source": f"EIOPA risk-free {calibration_year}-Q4",
+        })
+write_table(pd.DataFrame(assumption_rows), LIFE_ASSUMPTIONS_TABLE,
+            "Granular life actuarial assumptions per (LoB, version) — used by Prophet mock engine")
+
+# COMMAND ----------
+
+# ── 8L.3 — 1_raw_life_lapses (quarterly) ────────────────────────────
+# Quarterly lapse experience: count of policies lapsed in this quarter, by
+# LoB × policy duration band. Pain D engineering happens here:
+# in 2025-Q4 only, unit-linked lapses spike by x1.35.
+
+# Read in-force snapshot from master (only counts in-force at quarter start)
+# Quarter-start = first day of (rp_year, rp_quarter)
+quarter_start = pd.Timestamp(f"{rp_year}-{(rp_quarter-1)*3+1:02d}-01")
+quarter_end = pd.Timestamp(reporting_date)
+
+life_master_df = spark.table(fqn(LIFE_MASTER_TABLE)).toPandas()
+life_master_df["issue_date"] = pd.to_datetime(life_master_df["issue_date"])
+life_master_df["exit_date"] = pd.to_datetime(life_master_df["exit_date"])
+
+# In-force at quarter start = issued before quarter_start AND (no exit OR exit after quarter_start)
+in_force_mask = (
+    (life_master_df["issue_date"] <= quarter_start) &
+    ((life_master_df["exit_date"].isna()) | (life_master_df["exit_date"] > quarter_start))
+)
+in_force_df = life_master_df.loc[in_force_mask].copy()
+in_force_df["duration_yrs"] = ((quarter_start - in_force_df["issue_date"]) / pd.Timedelta(days=365.25)).clip(lower=0)
+in_force_df["duration_band"] = pd.cut(
+    in_force_df["duration_yrs"],
+    bins=[-0.01, 1, 3, 5, 10, 20, 100],
+    labels=["0-1y", "1-3y", "3-5y", "5-10y", "10-20y", "20y+"],
+)
+
+# Pain D: unit-linked lapse spike in 2025-Q4 only
+def lapse_uplift(lob_name: str, period: str) -> float:
+    if period == "2025-Q4" and lob_name == "unit_linked":
+        return 1.35
+    return 1.00
+
+lapse_rows = []
+for lob in LIFE_LOBS:
+    sub = in_force_df[in_force_df["lob_code"] == lob["code"]]
+    if sub.empty:
+        continue
+    quarterly_base_lapse = lob["base_lapse"] / 4.0
+    uplift = lapse_uplift(lob["lob"], reporting_period)
+    for band, band_df in sub.groupby("duration_band", observed=True):
+        n_in_force = len(band_df)
+        if n_in_force == 0:
+            continue
+        # Duration drives a slight lapse curve shape (newer business lapses more)
+        band_factor = {"0-1y": 1.4, "1-3y": 1.2, "3-5y": 1.0, "5-10y": 0.85, "10-20y": 0.6, "20y+": 0.4}.get(str(band), 1.0)
+        lapse_rate_q = quarterly_base_lapse * uplift * band_factor
+        n_lapsed = int(round(n_in_force * lapse_rate_q))
+        # Surrender value: rough 80% of premium reserve (modeled as 70% of SA-equivalent)
+        avg_sa = float(band_df["sum_assured_eur"].mean()) if lob["lob"] != "annuity" else float(band_df["annuity_income_eur"].mean())
+        avg_surrender_value = round(0.70 * avg_sa, 2)
+        lapse_rows.append({
+            "reporting_period": reporting_period,
+            "lob_code": lob["code"],
+            "lob_name": lob["lob"],
+            "duration_band": str(band),
+            "in_force_at_quarter_start": n_in_force,
+            "lapsed_in_quarter": n_lapsed,
+            "lapse_rate_quarterly": round(lapse_rate_q, 5),
+            "annualised_lapse_rate": round(lapse_rate_q * 4, 5),
+            "avg_surrender_value_eur": avg_surrender_value,
+            "total_surrender_payment_eur": round(avg_surrender_value * n_lapsed, 2),
+            "assumption_version": period_to_version.get(reporting_period, "unknown"),
+        })
+write_quarterly_table(pd.DataFrame(lapse_rows), "1_raw_life_lapses",
+            "Quarterly life lapse experience by LoB and policy duration band")
+
+# COMMAND ----------
+
+# ── 8L.4 — 1_raw_life_claims (quarterly) ────────────────────────────
+# Death + surrender + annuity-payment events recorded this quarter.
+claim_rows = []
+claim_id_seq = base_seed * 100_000 + (rp_year * 100 + rp_quarter) * 10_000
+
+for lob in LIFE_LOBS:
+    sub = in_force_df[in_force_df["lob_code"] == lob["code"]]
+    if sub.empty:
+        continue
+    # Death claims: expected deaths = sum(qx_per_quarter) over in-force
+    # Use simple per-policy q based on current age (approximated)
+    ages = sub["current_age"].values.astype(int)
+    qx_pa = np.array([qx(int(a)) for a in ages])
+    qx_q = qx_pa / 4.0
+    # Mortality calibration: 2025-v1 multiplier of 0.98
+    mort_mult = 1.000 if reporting_period.startswith("2024") else 0.980
+    expected_deaths = float(np.sum(qx_q * mort_mult))
+    n_deaths = int(round(expected_deaths))
+
+    if lob["lob"] == "annuity":
+        # Annuities pay quarterly while annuitant alive — record one row per policy
+        n_payments = len(sub)
+        if n_payments > 0:
+            avg_payment = float(sub["annuity_income_eur"].mean()) / 4.0
+            for _ in range(min(n_payments, 5_000)):  # cap to keep volume manageable
+                claim_id_seq += 1
+                claim_rows.append({
+                    "claim_id": f"LC{claim_id_seq:010d}",
+                    "policy_id": None,  # aggregated
+                    "reporting_period": reporting_period,
+                    "lob_code": lob["code"],
+                    "lob_name": lob["lob"],
+                    "claim_type": "annuity_payment",
+                    "claim_date": (quarter_end - pd.Timedelta(days=int(rng.uniform(0, 90)))).date().isoformat(),
+                    "amount_eur": round(avg_payment, 2),
+                    "currency": "EUR",
+                    "status": "paid",
+                })
+    else:
+        # Death claims
+        if n_deaths > 0:
+            sample_deaths = sub.sample(n=min(n_deaths, len(sub)), random_state=quarter_seed + lob["code"])
+            for _, r in sample_deaths.iterrows():
+                claim_id_seq += 1
+                claim_rows.append({
+                    "claim_id": f"LC{claim_id_seq:010d}",
+                    "policy_id": r["policy_id"],
+                    "reporting_period": reporting_period,
+                    "lob_code": lob["code"],
+                    "lob_name": lob["lob"],
+                    "claim_type": "death",
+                    "claim_date": (quarter_end - pd.Timedelta(days=int(rng.uniform(0, 90)))).date().isoformat(),
+                    "amount_eur": float(r["sum_assured_eur"]),
+                    "currency": "EUR",
+                    "status": "paid",
+                })
+        # Surrenders for non-annuity products are captured in the lapses table — no duplicate.
+
+write_quarterly_table(pd.DataFrame(claim_rows), "1_raw_life_claims",
+            "Life claims (death + annuity payments) recorded in the quarter")
+
+# COMMAND ----------
+
+# ── 8L.5 — 1_raw_life_mortality_experience (quarterly) ──────────────
+# Actual vs expected deaths by 5-year age band, for the experience study.
+mortality_rows = []
+for band_lo in range(20, 100, 5):
+    band_hi = band_lo + 5
+    sub = in_force_df[(in_force_df["current_age"] >= band_lo) & (in_force_df["current_age"] < band_hi)]
+    if len(sub) == 0:
+        continue
+    # Expected qx is the band's table value, quarterly
+    expected_qx_q = MORTALITY_BANDS.get(band_lo, MORTALITY_BANDS[max(MORTALITY_BANDS.keys())]) / 4.0
+    expected_deaths = round(float(len(sub) * expected_qx_q), 2)
+    # Actual deaths — pull from claims table for this band
+    band_claim_count = sum(
+        1 for c in claim_rows
+        if c["claim_type"] == "death" and band_lo <= int(life_master_df.loc[life_master_df["policy_id"] == c["policy_id"], "current_age"].iloc[0]) < band_hi
+    ) if claim_rows else 0
+    # Approximate actual = expected ± noise to keep the demo realistic
+    actual_deaths = max(0, int(round(expected_deaths * rng.uniform(0.85, 1.10))))
+    mortality_rows.append({
+        "reporting_period": reporting_period,
+        "age_band": f"{band_lo}-{band_hi-1}",
+        "exposed_lives": len(sub),
+        "expected_deaths": expected_deaths,
+        "actual_deaths": actual_deaths,
+        "ae_ratio": round(actual_deaths / expected_deaths, 3) if expected_deaths > 0 else None,
+        "table_basis": "DAV2008T (composite)",
+    })
+write_quarterly_table(pd.DataFrame(mortality_rows), "1_raw_life_mortality_experience",
+            "Actual vs expected mortality by age band — quarterly experience study")
+
+# COMMAND ----------
+
+# ── 8L.6 — 1_raw_life_reserves (quarterly) ──────────────────────────
+# Best estimate liability (BEL) by life LoB. Simplified projection: per LoB,
+# BEL = in-force × (avg_sum_assured × bel_factor) where bel_factor encodes
+# the present value of future benefits net of premiums under standard assumptions.
+
+BEL_FACTORS = {
+    "with_profit": 0.85,    # mature book — high reserve relative to SA
+    "unit_linked": 0.92,    # closely tracks unit value
+    "term": 0.05,           # very low — only mortality reserve for the term
+    "whole_of_life": 0.65,  # significant savings element
+    "annuity": 12.0,        # PV of future income payments — multiple of annual
+    "health_slt": 0.30,     # short-term renewable
+}
+
+reserve_rows = []
+for lob in LIFE_LOBS:
+    sub = in_force_df[in_force_df["lob_code"] == lob["code"]]
+    if sub.empty:
+        continue
+    if lob["lob"] == "annuity":
+        avg_sa = float(sub["annuity_income_eur"].mean())
+    else:
+        avg_sa = float(sub["sum_assured_eur"].mean())
+    n_in_force = len(sub)
+    bel_factor = BEL_FACTORS[lob["lob"]]
+
+    # Pain D flow-through: unit-linked lapse spike in 2025-Q4 increases BEL ~+2.3%
+    # (deteriorated lapse experience implies lower future profit margin = more BEL)
+    bel_uplift = 1.0
+    if reporting_period == "2025-Q4" and lob["lob"] == "unit_linked":
+        bel_uplift = 1.023
+
+    bel = round(n_in_force * avg_sa * bel_factor * bel_uplift, 2)
+    risk_margin = round(bel * 0.06, 2)  # ~6% of BEL — simplified Solvency II RM proxy
+
+    reserve_rows.append({
+        "reporting_period": reporting_period,
+        "lob_code": lob["code"],
+        "lob_name": lob["lob"],
+        "lob_eiopa_name": lob["name"],
+        "in_force_count": n_in_force,
+        "avg_sum_assured_or_income_eur": round(avg_sa, 2),
+        "best_estimate_liability_eur": bel,
+        "risk_margin_eur": risk_margin,
+        "technical_provisions_eur": round(bel + risk_margin, 2),
+        "assumption_version": period_to_version.get(reporting_period, "unknown"),
+        "discount_curve_source": f"EIOPA risk-free {reporting_period}",
+    })
+write_quarterly_table(pd.DataFrame(reserve_rows), "1_raw_life_reserves",
+            "Life best-estimate liabilities and risk margin by LoB (quarterly snapshot)")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 9. SCR Parameters & Risk Factors
 # MAGIC
 # MAGIC EIOPA Standard Formula parameters — correlation matrix and sub-module charges.
@@ -947,23 +1542,46 @@ for name, charge in nl_charges.items():
         "description": f"Non-life UW risk: {name.replace('_', ' ')}",
     })
 
-# Health underwriting
-risk_factors.append({
-    "risk_module": "health",
-    "risk_sub_module": "health_similar_nl",
-    "charge_eur": to_eur(rng.uniform(40, 70) * 1e6 * growth),
-    "reporting_period": reporting_period,
-    "description": "Health underwriting: similar to non-life techniques",
-})
+# Health underwriting (composite — full sub-module set)
+# Use deterministic factors driven by health book BEL where it exists.
+health_slt_bel = sum(
+    r["best_estimate_liability_eur"] for r in reserve_rows if r["lob_name"] == "health_slt"
+)
+# Health UW charges roughly proportional to health BEL; minimum floor for non-zero books.
+health_charges_eur = {
+    "health_mortality": max(8e6, health_slt_bel * 0.020),
+    "health_longevity": max(2e6, health_slt_bel * 0.005),
+    "health_lapse":     max(6e6, health_slt_bel * 0.025),
+    "health_expense":   max(4e6, health_slt_bel * 0.015),
+}
+for name, charge in health_charges_eur.items():
+    risk_factors.append({
+        "risk_module": "health",
+        "risk_sub_module": name,
+        "charge_eur": to_eur(charge * growth),
+        "reporting_period": reporting_period,
+        "description": f"Health UW: {name.replace('health_', '').replace('_', ' ')}",
+    })
 
-# Life (minimal for P&C insurer)
-risk_factors.append({
-    "risk_module": "life",
-    "risk_sub_module": "life_expense",
-    "charge_eur": to_eur(rng.uniform(5, 15) * 1e6 * growth),
-    "reporting_period": reporting_period,
-    "description": "Life underwriting: expense risk (minor for P&C)",
-})
+# Life underwriting (composite — driven by Prophet sub-module output)
+# Sum Prophet VaR per sub-module across all life LoBs (excludes health_slt — that's in 'health' module).
+life_submodule_totals = {"mortality": 0.0, "longevity": 0.0, "lapse": 0.0,
+                         "expense": 0.0, "life_cat": 0.0}
+for row in prophet_rows:
+    if row["lob_name"] == "health_slt":
+        continue
+    sub = row["sub_module"]
+    if sub in life_submodule_totals:
+        life_submodule_totals[sub] += float(row["var_eur"])
+
+for sub, total in life_submodule_totals.items():
+    risk_factors.append({
+        "risk_module": "life",
+        "risk_sub_module": sub,
+        "charge_eur": to_eur(total),  # already includes growth via Prophet inputs
+        "reporting_period": reporting_period,
+        "description": f"Life UW: {sub.replace('_', ' ')} (from Prophet)",
+    })
 
 write_quarterly_table(pd.DataFrame(risk_factors), "1_raw_risk_factors",
             "SCR sub-module charges by risk module — recalculated each quarter")
@@ -1100,6 +1718,62 @@ write_quarterly_table(pd.DataFrame(igloo_rows), "4_eng_stochastic_results",
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 12L. Prophet Results (simulated life stochastic output)
+# MAGIC
+# MAGIC Mirrors the Igloo pattern but for the life book. Per (LoB × sub_module),
+# MAGIC produces VaR / TVaR for the SF life UW SCR sub-modules:
+# MAGIC mortality, longevity, lapse, expense, life_cat.
+
+# COMMAND ----------
+
+# Simplified life UW SCR sub-module sizing (relative to BEL).
+# Real numbers would come from a stochastic projection; we use deterministic
+# multipliers calibrated to be plausible for a mid-size composite book.
+LIFE_SUBMODULE_FACTORS = {
+    # (lob_name): {sub_module: factor_of_BEL}
+    "with_profit":   {"mortality": 0.005, "longevity": 0.012, "lapse": 0.018, "expense": 0.005, "life_cat": 0.003},
+    "unit_linked":   {"mortality": 0.003, "longevity": 0.002, "lapse": 0.030, "expense": 0.006, "life_cat": 0.002},
+    "term":          {"mortality": 0.080, "longevity": 0.000, "lapse": 0.025, "expense": 0.010, "life_cat": 0.020},
+    "whole_of_life": {"mortality": 0.010, "longevity": 0.008, "lapse": 0.012, "expense": 0.005, "life_cat": 0.005},
+    "annuity":       {"mortality": 0.000, "longevity": 0.060, "lapse": 0.000, "expense": 0.005, "life_cat": 0.000},
+    "health_slt":    {"mortality": 0.020, "longevity": 0.005, "lapse": 0.025, "expense": 0.015, "life_cat": 0.010},
+}
+
+# Read this period's life reserves to get BEL by LoB
+life_bel = {r["lob_name"]: float(r["best_estimate_liability_eur"])
+            for r in reserve_rows}
+
+prophet_rows = []
+for lob in LIFE_LOBS:
+    bel = life_bel.get(lob["lob"], 0.0)
+    if bel <= 0:
+        continue
+    for sub_module, factor in LIFE_SUBMODULE_FACTORS[lob["lob"]].items():
+        var = bel * factor
+        # TVaR is ~1.15-1.30x VaR for life; use deterministic 1.20
+        tvar = var * 1.20
+        # Pain D flow: unit-linked lapse stress is markedly higher in 2025-Q4
+        if reporting_period == "2025-Q4" and lob["lob"] == "unit_linked" and sub_module == "lapse":
+            var *= 1.40
+            tvar *= 1.40
+        prophet_rows.append({
+            "reporting_period": reporting_period,
+            "lob_code": lob["code"],
+            "lob_name": lob["lob"],
+            "sub_module": sub_module,
+            "var_eur": to_eur(var),
+            "tvar_eur": to_eur(tvar),
+            "scenario_count": 5000,
+            "model_version": "Prophet 7.4.2",
+            "run_timestamp": datetime.now().isoformat(),
+        })
+
+write_quarterly_table(pd.DataFrame(prophet_rows), "4_eng_prophet_results",
+            "Simulated Prophet life stochastic output — VaR/TVaR by life LoB and SCR sub-module")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 13. Own Funds & Balance Sheet
 
 # COMMAND ----------
@@ -1151,49 +1825,73 @@ sla_deadline_day = 15  # 15th of month after quarter-end
 sla_month = (rp_quarter * 3) % 12 + 1
 sla_year = rp_year if sla_month > 1 else rp_year + 1
 sla_deadline = datetime(sla_year, sla_month, sla_deadline_day, 18, 0, 0)
+quarter_close = datetime(rp_year, rp_quarter * 3, 30, 18, 0, 0) if rp_quarter in (2, 3) else (
+    datetime(rp_year, rp_quarter * 3, 31, 18, 0, 0)
+)
 
-FEED_CONFIG = [
-    {"feed": "1_raw_assets", "source": "Investment Platform (Simcorp)", "typical_days_early": 5},
-    {"feed": "1_raw_premiums", "source": "Policy Admin System (Guidewire)", "typical_days_early": 3},
-    {"feed": "1_raw_claims", "source": "Claims Management System", "typical_days_early": 4},
-    {"feed": "1_raw_expenses", "source": "Finance / ERP (SAP)", "typical_days_early": 1},
-    {"feed": "1_raw_risk_factors", "source": "Risk Engine (Igloo/RAFM)", "typical_days_early": 2},
-    {"feed": "1_raw_reinsurance", "source": "RI Admin (Solvara)", "typical_days_early": 10},
-]
+# Source mapping (display labels). The SLA business-day target itself comes
+# from 0_cfg_feed_sla so the Control Tower reads a single source of truth.
+FEED_SOURCES = {
+    "1_raw_assets":                   "Investment Platform (Simcorp)",
+    "1_raw_premiums":                 "Policy Admin System (Guidewire)",
+    "1_raw_claims":                   "Claims Management System",
+    "1_raw_expenses":                 "Finance / ERP (SAP)",
+    "1_raw_risk_factors":             "Risk Engine (Igloo/RAFM)",
+    "1_raw_reinsurance":              "RI Admin (Solvara)",
+    "1_raw_exposures":                "Underwriting Platform",
+    "1_raw_life_policies":            "Life Admin (Prophet Front-Office)",
+    "1_raw_life_claims":              "Life Admin (Prophet Front-Office)",
+    "1_raw_life_lapses":              "Life Admin (Prophet Front-Office)",
+    "1_raw_life_mortality_experience":"Life Actuarial Workbench",
+    "1_raw_life_assumptions":         "Life Actuarial Workbench",
+}
+
+# Pain A — late RI feed: in Q1-Q3 it arrives ~t+2/3, in Q4 it arrives at t+11
+# (8 days late vs 3-business-day SLA). All other feeds stay clean.
+def _arrival_days_after_close(feed_name: str) -> int:
+    if feed_name == "1_raw_reinsurance":
+        return 11 if reporting_period == "2025-Q4" else int(rng.choice([2, 2, 3, 3]))
+    if feed_name == "1_raw_expenses":
+        return 6 if reporting_period == "2025-Q4" else int(rng.choice([3, 4, 4, 5]))
+    return int(rng.choice([1, 2, 2, 3, 3]))
 
 sla_rows = []
-for fc in FEED_CONFIG:
-    days_early = fc["typical_days_early"] + int(rng.uniform(-3, 3))
-    arrival = sla_deadline - timedelta(days=days_early)
+for feed_name, source in FEED_SOURCES.items():
+    days_after_close = _arrival_days_after_close(feed_name)
+    arrival = quarter_close + timedelta(days=days_after_close, hours=int(rng.uniform(0, 8)))
+    feed_received_timestamp = arrival.isoformat()
+    on_time = arrival <= sla_deadline
+    status = "on_time" if on_time else "late"
 
-    # Make 1_raw_expenses late in Q4 for demo narrative
-    if fc["feed"] == "1_raw_expenses" and rp_quarter == 4:
-        arrival = sla_deadline + timedelta(days=2, hours=int(rng.uniform(1, 8)))
-
-    status = "on_time" if arrival <= sla_deadline else "late"
-
-    # Count rows from the actual table
     try:
-        feed_count = spark.table(f"{catalog}.{schema}.{fc['feed']}").filter(
+        feed_count = spark.table(f"{catalog}.{schema}.`{feed_name}`").filter(
             f"reporting_period = '{reporting_period}'"
         ).count()
     except Exception:
         feed_count = int(rng.uniform(1000, 50000))
 
     dq_pass = round(rng.uniform(0.985, 1.0), 4)
-    if fc["feed"] == "1_raw_expenses" and rp_quarter == 4:
-        dq_pass = round(rng.uniform(0.965, 0.985), 4)  # slightly worse for late data
+    if feed_name == "1_raw_expenses" and rp_quarter == 4:
+        dq_pass = round(rng.uniform(0.965, 0.985), 4)
+    if feed_name == "1_raw_claims" and reporting_period == "2025-Q4":
+        # Pain B taints Q4 claims — visible drop in pass rate
+        dq_pass = round(rng.uniform(0.955, 0.978), 4)
+
+    notes = f"Arrived {days_after_close} day(s) after quarter close"
+    if feed_name == "1_raw_reinsurance" and reporting_period == "2025-Q4":
+        notes = "RI broker delayed — quarterly bordereau received 8 business days late"
 
     sla_rows.append({
         "reporting_period": reporting_period,
-        "feed_name": fc["feed"],
-        "source_system": fc["source"],
+        "feed_name": feed_name,
+        "source_system": source,
         "sla_deadline": sla_deadline,
         "actual_arrival": arrival,
+        "feed_received_timestamp": feed_received_timestamp,
         "row_count": feed_count,
         "status": status,
         "dq_pass_rate": dq_pass,
-        "notes": f"Arrived {abs(days_early)} days {'early' if arrival <= sla_deadline else 'late'}",
+        "notes": notes,
     })
 
 write_quarterly_table(pd.DataFrame(sla_rows), "5_mon_pipeline_sla_status",
@@ -1324,6 +2022,26 @@ recon_rows.append({
     "difference": round(diff, 2),
     "tolerance": round(bs_total * 0.02, 2),
     "status": "MATCH" if diff < bs_total * 0.02 else "MISMATCH",
+})
+
+# Check 1b — strict "no surprise increment" check.
+# S.06.02 vs the asset side derived from own funds + liabilities. We use a
+# €1M tolerance so a duplicate-bond style gap is unambiguously flagged.
+recon_rows.append({
+    "reporting_period": reporting_period,
+    "check_name": "s0602_vs_own_funds_plus_liabilities",
+    "check_description": (
+        "Sum of S.06.02 SII amounts must reconcile to own funds + technical provisions "
+        "+ other liabilities within €1M. Larger gaps usually indicate duplicate or missing "
+        "investment positions in the custodian feed."
+    ),
+    "source_qrt": "S.06.02",
+    "target_qrt": "S.25.01 (own funds derived)",
+    "source_value": round(s0602_total, 2),
+    "target_value": round(bs_total, 2),
+    "difference": round(diff, 2),
+    "tolerance": 1_000_000.00,
+    "status": "MATCH" if diff < 1_000_000 else "MISMATCH",
 })
 
 # Check 2: GWP in S.05.01 vs sum of premium transactions

@@ -2,9 +2,9 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from server.config import fqn, get_current_user
+from server.config import fqn, get_request_user
 from server.sql import execute_query, execute_query_cached
 from server.ai import generate_review
 from server.prompts import DQ_TRIAGE_SYSTEM, DQ_TRIAGE_PROMPT
@@ -211,9 +211,9 @@ async def get_feed_detail(feed_name: str):
 # ── Reconciliation Detail + AI Investigation ─────────────────────────────────
 
 @router.post("/recon-investigate")
-async def investigate_reconciliation(body: dict = {}):
+async def investigate_reconciliation(request: Request, body: dict = {}):
     """AI investigates a specific reconciliation mismatch."""
-    user = get_current_user()
+    user = get_request_user(request)
     check_name = body.get("check_name", "")
 
     try:
@@ -317,9 +317,9 @@ Output in markdown: ## Root Cause, ## Impact Assessment, ## Recommendation."""
 # ── Agent #3: DQ Triage ─────────────────────────────────────────────────────
 
 @router.post("/dq-investigate")
-async def investigate_dq_failures():
+async def investigate_dq_failures(request: Request):
     """AI agent investigates data quality failures and hypothesises root causes."""
-    user = get_current_user()
+    user = get_request_user(request)
 
     try:
         # Get latest period

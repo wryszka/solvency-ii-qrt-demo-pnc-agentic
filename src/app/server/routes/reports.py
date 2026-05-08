@@ -7,10 +7,10 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from server.config import fqn, get_current_user
+from server.config import fqn, get_request_user
 from databricks.sdk.service.sql import StatementParameterListItem
 from server.sql import execute_query, execute_query_cached
 from server.ai import generate_review
@@ -950,7 +950,7 @@ async def _gather_context(qrt_id: str) -> dict:
 
 
 @router.post("/{qrt_id}/ai-review")
-async def generate_ai_review(qrt_id: str):
+async def generate_ai_review(qrt_id: str, request: Request):
     """Generate an AI actuarial review for a QRT, with full guardrails."""
     if qrt_id not in QRT_DEFS:
         raise HTTPException(404, "Unknown QRT")
@@ -958,7 +958,7 @@ async def generate_ai_review(qrt_id: str):
     if qrt_id not in QRT_PROMPTS:
         raise HTTPException(400, f"No AI review template for {qrt_id}")
 
-    user = get_current_user()
+    user = get_request_user(request)
 
     try:
         # Gather data context
@@ -1084,9 +1084,9 @@ async def get_agent_governance():
 # ── Agent #4: Cross-QRT Consistency ──────────────────────────────────────────
 
 @router.post("/cross-qrt-review")
-async def cross_qrt_consistency_review():
+async def cross_qrt_consistency_review(request: Request):
     """AI agent reviews all 4 QRTs together for cross-template consistency."""
-    user = get_current_user()
+    user = get_request_user(request)
 
     try:
         # Gather latest summaries from all 4 QRTs
@@ -1179,9 +1179,9 @@ async def cross_qrt_consistency_review():
 # ── Agent #5: Stochastic Engine Orchestration ────────────────────────────────
 
 @router.post("/stochastic-engine-review")
-async def stochastic_engine_review():
+async def stochastic_engine_review(request: Request):
     """AI agent reviews stochastic engine inputs/outputs for S.26.06."""
-    user = get_current_user()
+    user = get_request_user(request)
 
     try:
         # Get latest reporting period
@@ -1664,13 +1664,13 @@ def _render_governance_pdf(data: dict, generated_by: str) -> bytes:
 
 
 @router.get("/{qrt_id}/governance-log")
-async def get_governance_log(qrt_id: str):
+async def get_governance_log(qrt_id: str, request: Request):
     """Generate and download the governance log PDF for a QRT."""
     if qrt_id not in QRT_DEFS:
         raise HTTPException(404, "Unknown QRT")
 
     try:
-        user = get_current_user()
+        user = get_request_user(request)
         data = await _gather_governance_data(qrt_id)
         pdf_bytes = _render_governance_pdf(data, generated_by=user)
 

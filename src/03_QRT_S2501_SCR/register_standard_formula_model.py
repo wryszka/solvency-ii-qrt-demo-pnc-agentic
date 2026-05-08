@@ -112,13 +112,35 @@ class StandardFormulaModel(mlflow.pyfunc.PythonModel):
             nl_charges[row["risk_sub_module"]] = float(row["charge_eur"])
         scr_non_life = self._aggregate_correlated(nl_charges, nl_corr, nl_labels)
 
-        # --- Health: pass-through (single sub-module for this P&C insurer) ---
-        health_rows = model_input[model_input["risk_module"] == "health"]
-        scr_health = float(health_rows["charge_eur"].sum())
+        # --- Health UW aggregation (composite — full sub-module set) ---
+        health_labels = p.get("health_labels", [])
+        health_corr = p.get("health_correlation")
+        health_charges = {}
+        for _, row in model_input[model_input["risk_module"] == "health"].iterrows():
+            health_charges[row["risk_sub_module"]] = float(row["charge_eur"])
+        if health_corr and health_labels:
+            scr_health = self._aggregate_correlated(health_charges, health_corr, health_labels)
+        else:
+            # Back-compat: simple sum if no correlation provided
+            scr_health = float(sum(health_charges.values()))
 
-        # --- Life: pass-through (minimal for P&C) ---
-        life_rows = model_input[model_input["risk_module"] == "life"]
-        scr_life = float(life_rows["charge_eur"].sum())
+        # --- Life UW aggregation (composite — EIOPA Annex IV correlations) ---
+        life_labels = p.get("life_labels", [])
+        life_corr = p.get("life_correlation")
+        life_charges = {}
+        for _, row in model_input[model_input["risk_module"] == "life"].iterrows():
+            life_charges[row["risk_sub_module"]] = float(row["charge_eur"])
+
+        # Apply life_lapse_stress_multiplier — used by the Challenger calibration
+        # to encode an updated lapse stress severity without changing correlations.
+        lapse_mult = float(p.get("life_lapse_stress_multiplier", 1.0))
+        if "lapse" in life_charges and lapse_mult != 1.0:
+            life_charges["lapse"] = life_charges["lapse"] * lapse_mult
+
+        if life_corr and life_labels:
+            scr_life = self._aggregate_correlated(life_charges, life_corr, life_labels)
+        else:
+            scr_life = float(sum(life_charges.values()))
 
         # --- BSCR aggregation ---
         bscr_labels = p["bscr_labels"]
@@ -229,6 +251,28 @@ params_2025 = {
         [0.25, 0.00, 1.00],
     ],
 
+    # Life underwriting risk correlation — EIOPA Annex IV
+    # Order: mortality, longevity, lapse, expense, life_cat
+    "life_labels": ["mortality", "longevity", "lapse", "expense", "life_cat"],
+    "life_correlation": [
+        [1.00, -0.25, 0.00, 0.25, 0.25],
+        [-0.25, 1.00, 0.25, 0.25, 0.00],
+        [0.00, 0.25, 1.00, 0.50, 0.25],
+        [0.25, 0.25, 0.50, 1.00, 0.25],
+        [0.25, 0.00, 0.25, 0.25, 1.00],
+    ],
+    "life_lapse_stress_multiplier": 1.00,
+
+    # Health underwriting risk correlation — Annex IV simplified (4 sub-modules)
+    # Order: health_mortality, health_longevity, health_lapse, health_expense
+    "health_labels": ["health_mortality", "health_longevity", "health_lapse", "health_expense"],
+    "health_correlation": [
+        [1.00, -0.25, 0.00, 0.25],
+        [-0.25, 1.00, 0.25, 0.25],
+        [0.00, 0.25, 1.00, 0.50],
+        [0.25, 0.25, 0.50, 1.00],
+    ],
+
     # Operational risk: 3% of BSCR (standard approach)
     "op_risk_factor": 0.03,
 
@@ -268,13 +312,35 @@ params_2026 = {
     # Non-life — catastrophe correlation tightened (climate risk)
     "nl_labels": ["premium_reserve", "lapse", "catastrophe"],
     "nl_correlation": [
-        [1.00, 0.00, 0.30],  # prem_res↔cat: 0.25 → 0.30 (climate risk)
+        [1.00, 0.00, 0.30],  # prem_res↔cat: 0.25 → 0.30 (climate risk; ~+1.5% NL UW)
         [0.00, 1.00, 0.00],
         [0.30, 0.00, 1.00],  # symmetric
     ],
 
-    # Operational risk: 3.5% of BSCR (increased post-cyber recalibration)
-    "op_risk_factor": 0.035,
+    # Life UW correlation — same EIOPA Annex IV structure as 2025
+    "life_labels": ["mortality", "longevity", "lapse", "expense", "life_cat"],
+    "life_correlation": [
+        [1.00, -0.25, 0.00, 0.25, 0.25],
+        [-0.25, 1.00, 0.25, 0.25, 0.00],
+        [0.00, 0.25, 1.00, 0.50, 0.25],
+        [0.25, 0.25, 0.50, 1.00, 0.25],
+        [0.25, 0.00, 0.25, 0.25, 1.00],
+    ],
+    # Updated lapse stress severity — drives ~+1.5% on the Challenger life UW SCR
+    "life_lapse_stress_multiplier": 1.15,
+
+    # Health UW correlation — same as 2025 (no methodology change)
+    "health_labels": ["health_mortality", "health_longevity", "health_lapse", "health_expense"],
+    "health_correlation": [
+        [1.00, -0.25, 0.00, 0.25],
+        [-0.25, 1.00, 0.25, 0.25],
+        [0.00, 0.25, 1.00, 0.50],
+        [0.25, 0.25, 0.50, 1.00],
+    ],
+
+    # Operational risk: 4.0% of BSCR — calibration update post-cyber/operational-resilience review
+    # (~+1% absolute on total SCR). Combined with NL & life lapse, total Challenger ≈ +4%.
+    "op_risk_factor": 0.040,
 
     # LAC_DT cap: 8% (tightened supervisory approach)
     "lac_dt_cap": 0.08,

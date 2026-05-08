@@ -1,0 +1,37 @@
+# S.12.01 — Life and Health (SLT) Technical Provisions QRT
+#
+# DAG (visible in Databricks Workflows):
+#
+#   1_raw_life_reserves ──→ 2_stg_life_tp_components ──→ 3_qrt_s1201_life_technical_provisions
+#                                                  ╰──→ 3_qrt_s1201_summary
+
+resources:
+  pipelines:
+    s1201_life_tp_pipeline:
+      name: "S.12.01 Life & Health-SLT Technical Provisions"
+      catalog: ${var.catalog_name}
+      target: ${var.schema_name}
+      channel: CURRENT
+      serverless: true
+      libraries:
+        - notebook:
+            path: ../src/05_QRT_S1201_Life_TPs/silver_life_tp_components.sql
+        - notebook:
+            path: ../src/05_QRT_S1201_Life_TPs/gold_s1201_life_technical_provisions.sql
+        - notebook:
+            path: ../src/05_QRT_S1201_Life_TPs/gold_s1201_summary.sql
+
+  jobs:
+    qrt_s1201:
+      name: "QRT S.12.01 — Life Technical Provisions"
+      parameters:
+        - name: catalog_name
+          default: ${var.catalog_name}
+        - name: schema_name
+          default: ${var.schema_name}
+
+      tasks:
+        - task_key: build_s1201
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.s1201_life_tp_pipeline.id}
+            full_refresh: true

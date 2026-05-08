@@ -1,0 +1,55 @@
+# Life UW Risk — Prophet Stochastic + DLT Pipeline
+#
+# DAG (visible in Databricks Workflows):
+#
+#   1_raw_life_reserves ──→ [Prophet 7.4.2] ──→ prophet_run_results ──→
+#       2_stg_life_uw_risk_by_module ──→ 3_qrt_life_uw_risk → 3_qrt_life_uw_risk_summary
+#
+# Task 1: Run the mock Prophet life model (export reserves, import results)
+# Task 2: DLT pipeline computes silver per-LoB charges and gold life UW SCR
+
+resources:
+  pipelines:
+    life_uw_risk_pipeline:
+      name: "Life UW Risk Template (composite)"
+      catalog: ${var.catalog_name}
+      target: ${var.schema_name}
+      channel: CURRENT
+      serverless: true
+      libraries:
+        - notebook:
+            path: ../src/04b_QRT_Life_UW_Risk/silver_life_uw_risk_by_module.sql
+        - notebook:
+            path: ../src/04b_QRT_Life_UW_Risk/gold_life_uw_risk.sql
+        - notebook:
+            path: ../src/04b_QRT_Life_UW_Risk/gold_life_uw_risk_summary.sql
+
+  jobs:
+    qrt_life_uw_risk:
+      name: "QRT Life UW Risk — Prophet (composite)"
+      parameters:
+        - name: catalog_name
+          default: ${var.catalog_name}
+        - name: schema_name
+          default: ${var.schema_name}
+
+      tasks:
+        - task_key: run_prophet
+          notebook_task:
+            notebook_path: ../src/04b_QRT_Life_UW_Risk/run_prophet_model.py
+            base_parameters:
+              catalog_name: ${var.catalog_name}
+              schema_name: ${var.schema_name}
+          environment_key: default
+
+        - task_key: build_life_uw
+          depends_on:
+            - task_key: run_prophet
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.life_uw_risk_pipeline.id}
+            full_refresh: true
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"

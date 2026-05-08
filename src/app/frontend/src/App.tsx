@@ -50,15 +50,34 @@ function Sidebar() {
         <NavLink to="/regulator-qa" icon={Bot} label="Regulatory AI" />
       </nav>
 
-      {/* Footer — entity + backstage */}
-      <div className="border-t border-white/10 p-3 flex items-center justify-between text-xs text-gray-400">
+      {/* Footer — entity + signed-in user + backstage */}
+      <div className="border-t border-white/10 p-3 space-y-2 text-xs text-gray-400">
         <div className="flex items-center gap-2 min-w-0">
           <Building2 className="w-3.5 h-3.5 shrink-0" />
           <span className="font-medium text-gray-300 truncate">Bricksurance SE</span>
         </div>
-        <BackstageLink />
+        <div className="flex items-center justify-between gap-2">
+          <SignedInUser />
+          <BackstageLink />
+        </div>
       </div>
     </aside>
+  );
+}
+
+function SignedInUser() {
+  const [user, setUser] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/me')
+      .then((r) => r.json())
+      .then((d) => setUser(d.user || null))
+      .catch(() => setUser(null));
+  }, []);
+  if (!user) return <span className="text-[10px] text-gray-500">signed out</span>;
+  return (
+    <span title={user} className="text-[10px] text-gray-400 truncate max-w-[140px]">
+      {user}
+    </span>
   );
 }
 

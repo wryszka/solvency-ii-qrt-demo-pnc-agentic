@@ -1,8 +1,14 @@
 # Solvency II QRT Demo — Runbook
 
-> **Bricksurance SE** — A mid-size European P&C insurer producing quarterly regulatory reports on Databricks.
+> **Bricksurance SE** — A mid-size European composite insurer (P&C + Life on one balance sheet)
+> producing quarterly regulatory reports on Databricks.
 
 This is your single reference for running the demo. It covers setup, the demo narrative, and links to every asset.
+
+> **Note (2026-Q2 onwards):** The composite reframe + life book + S.12.01 + Prophet engine + Q4 2025 engineered pains
+> are deployed to the new `dev_v2` bundle target on `fevm-lr-dev-aws-us` (catalog `lr_dev_aws_us_catalog`,
+> schema `solvency2demo_v2`). The original FEVM serverless demo (links below) stays frozen until the next
+> release is signed off.
 
 ---
 

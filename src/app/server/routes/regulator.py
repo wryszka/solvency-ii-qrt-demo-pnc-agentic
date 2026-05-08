@@ -4,10 +4,10 @@ import json
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from server.config import fqn, get_current_user
+from server.config import fqn, get_request_user
 from server.sql import execute_query
 from server.ai import generate_review
 from server.prompts import REGULATOR_QA_SYSTEM, REGULATOR_QA_PROMPT
@@ -130,12 +130,12 @@ async def get_examples():
 
 
 @router.post("/ask")
-async def ask_question(req: QuestionRequest):
+async def ask_question(req: QuestionRequest, request: Request):
     """Answer a Solvency II regulatory question using QRT data context."""
     if not req.question or len(req.question.strip()) < 5:
         raise HTTPException(400, "Question too short")
 
-    user = get_current_user()
+    user = get_request_user(request)
 
     try:
         # Gather full data context

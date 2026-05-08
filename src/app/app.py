@@ -1,13 +1,14 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.routes import reports, approvals, monitoring, regulator, genie, supervisor, archive
-from server.config import get_dashboard_id, get_genie_space_id, get_workspace_host
+from server.config import get_dashboard_id, get_genie_space_id, get_workspace_host, get_request_user
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,9 +59,51 @@ app.include_router(supervisor.router)
 app.include_router(archive.router)
 
 
+@app.middleware("http")
+async def audit_log_middleware(request: Request, call_next):
+    """Log every API request with the resolved user identity.
+
+    Skips the static SPA assets to keep the log readable. Failures here must
+    not break the request — wrap the user lookup defensively.
+    """
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    try:
+        user = get_request_user(request)
+    except Exception:
+        user = "unknown"
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        logger.info(
+            "[audit] %s %s user=%s status=%s duration_ms=%d",
+            request.method, request.url.path, user, response.status_code, elapsed_ms,
+        )
+        return response
+    except Exception:
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        logger.exception(
+            "[audit] %s %s user=%s status=ERROR duration_ms=%d",
+            request.method, request.url.path, user, elapsed_ms,
+        )
+        raise
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/me")
+async def me(request: Request):
+    """Return the identity of the current request user.
+
+    Source order: X-Forwarded-Email -> X-Forwarded-Preferred-Username
+    -> X-Forwarded-User -> $USER (local dev fallback).
+    """
+    return {"user": get_request_user(request)}
 
 
 @app.get("/api/embeds")
@@ -77,12 +120,20 @@ async def embeds():
 
 
 @app.get("/api/backstage-url")
-async def backstage_url():
+async def backstage_url(request: Request):
+    """Return a deep link to the technical-deep-dive notebook in the workspace.
+
+    BACKSTAGE_NOTEBOOK_PATH (env) overrides the default; the default assumes
+    the bundle synced source under the calling user's home folder.
+    """
+    import os
     host = get_workspace_host()
+    nb_path = os.getenv("BACKSTAGE_NOTEBOOK_PATH", "").strip()
+    if nb_path:
+        return {"url": f"{host}#notebook{nb_path}"}
     try:
-        from server.config import get_current_user
-        user = get_current_user()
-        nb_path = f"/Workspace/Users/{user}/solvency-ii-qrt-demo-agentic/06_backstage_technical"
+        user = get_request_user(request)
+        nb_path = f"/Workspace/Users/{user}/06_backstage_technical"
         return {"url": f"{host}#notebook{nb_path}"}
     except Exception:
         return {"url": f"{host}#workspace"}

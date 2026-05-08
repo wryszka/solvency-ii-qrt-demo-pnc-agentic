@@ -10,11 +10,11 @@ import json
 import logging
 from typing import AsyncIterator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from server.config import fqn, get_current_user
+from server.config import fqn, get_request_user
 from server.sql import execute_query, execute_query_cached
 from server.ai import call_with_tools, generate_review
 
@@ -374,12 +374,12 @@ async def _supervisor_stream(question: str, user: str) -> AsyncIterator[str]:
 
 
 @router.post("/ask")
-async def supervisor_ask(req: SupervisorRequest):
+async def supervisor_ask(req: SupervisorRequest, request: Request):
     """Stream the supervisor's reasoning and final answer as SSE."""
     if not req.question or len(req.question.strip()) < 3:
         raise HTTPException(400, "Question too short")
 
-    user = get_current_user()
+    user = get_request_user(request)
     return StreamingResponse(
         _supervisor_stream(req.question, user),
         media_type="text/event-stream",

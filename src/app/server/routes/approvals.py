@@ -5,10 +5,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from databricks.sdk.service.sql import StatementParameterListItem
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from server.config import fqn, get_current_user, get_catalog, get_schema
+from server.config import fqn, get_request_user, get_catalog, get_schema
 from server.sql import execute_query
 
 logger = logging.getLogger(__name__)
@@ -81,15 +82,19 @@ async def get_all_approvals():
 
 # ── Submit for review ────────────────────────────────────────────────────────
 
+def _str_param(name: str, value: str) -> StatementParameterListItem:
+    return StatementParameterListItem(name=name, value=value, type="STRING")
+
+
 @router.post("/{qrt_id}/submit")
-async def submit_for_review(qrt_id: str):
+async def submit_for_review(qrt_id: str, request: Request):
     if qrt_id not in VALID_QRTS:
         raise HTTPException(404, "Unknown QRT")
 
     await ensure_approvals_table()
     approval_id = str(uuid.uuid4())
     submitted_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    submitted_by = get_current_user()
+    submitted_by = get_request_user(request)
 
     # Get latest reporting period from the QRT table
     table = QRT_EXPORT_TABLES[qrt_id]
@@ -101,16 +106,30 @@ async def submit_for_review(qrt_id: str):
     except Exception:
         reporting_period = "unknown"
 
+    # Race guard: refuse if a pending submission for the same (qrt, period) exists.
+    existing = await execute_query(
+        f"SELECT approval_id FROM {fqn('6_ai_approvals')} "
+        "WHERE qrt_id = :qrt_id AND reporting_period = :rp AND status = 'pending' LIMIT 1",
+        parameters=[_str_param("qrt_id", qrt_id), _str_param("rp", reporting_period)],
+    )
+    if existing:
+        raise HTTPException(409, f"A pending submission already exists for {qrt_id} {reporting_period}")
+
     try:
-        await execute_query(f"""
-            INSERT INTO {fqn('6_ai_approvals')}
-            (approval_id, qrt_id, reporting_period, status, submitted_by, submitted_at,
-             reviewed_by, reviewed_at, comments, export_path)
-            VALUES (
-                '{approval_id}', '{qrt_id}', '{reporting_period}', 'pending',
-                '{submitted_by}', '{submitted_at}', NULL, NULL, NULL, NULL
-            )
-        """)
+        await execute_query(
+            f"INSERT INTO {fqn('6_ai_approvals')} "
+            "(approval_id, qrt_id, reporting_period, status, submitted_by, submitted_at, "
+            " reviewed_by, reviewed_at, comments, export_path) "
+            "VALUES (:approval_id, :qrt_id, :rp, 'pending', :submitted_by, "
+            " CAST(:submitted_at AS TIMESTAMP), NULL, NULL, NULL, NULL)",
+            parameters=[
+                _str_param("approval_id", approval_id),
+                _str_param("qrt_id", qrt_id),
+                _str_param("rp", reporting_period),
+                _str_param("submitted_by", submitted_by),
+                _str_param("submitted_at", submitted_at),
+            ],
+        )
         return {
             "approval_id": approval_id,
             "qrt_id": qrt_id,
@@ -125,52 +144,62 @@ async def submit_for_review(qrt_id: str):
 # ── Approve or reject ────────────────────────────────────────────────────────
 
 @router.post("/{qrt_id}/review")
-async def review_qrt(qrt_id: str, request: ReviewRequest):
+async def review_qrt(qrt_id: str, body: ReviewRequest, request: Request):
     if qrt_id not in VALID_QRTS:
         raise HTTPException(404, "Unknown QRT")
-    if request.status not in ("approved", "rejected"):
+    if body.status not in ("approved", "rejected"):
         raise HTTPException(400, "Status must be 'approved' or 'rejected'")
 
     await ensure_approvals_table()
     reviewed_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    reviewed_by = get_current_user()
-    comments_escaped = (request.comments or "").replace("'", "''")
+    reviewed_by = get_request_user(request)
+    comments = body.comments or ""
 
     try:
-        pending = await execute_query(f"""
-            SELECT approval_id, reporting_period
-            FROM {fqn('6_ai_approvals')}
-            WHERE qrt_id = '{qrt_id}' AND status = 'pending'
-            ORDER BY submitted_at DESC LIMIT 1
-        """)
+        pending = await execute_query(
+            f"SELECT approval_id, reporting_period, submitted_by FROM {fqn('6_ai_approvals')} "
+            "WHERE qrt_id = :qrt_id AND status = 'pending' "
+            "ORDER BY submitted_at DESC LIMIT 1",
+            parameters=[_str_param("qrt_id", qrt_id)],
+        )
         if not pending:
             raise HTTPException(404, "No pending approval found")
 
         approval_id = pending[0]["approval_id"]
         reporting_period = pending[0]["reporting_period"]
+        submitted_by = pending[0].get("submitted_by") or ""
 
-        export_path = None
-        if request.status == "approved":
-            # Export to volume (simulated Tagetik export)
+        # Segregation of duties: submitter must not be the reviewer.
+        if submitted_by and submitted_by == reviewed_by:
+            raise HTTPException(
+                403,
+                "Segregation of duties: the submitter cannot review their own submission. "
+                f"This QRT was submitted by {submitted_by}.",
+            )
+
+        export_path: str | None = None
+        if body.status == "approved":
             export_path = await _export_to_volume(qrt_id, reporting_period, reviewed_at)
 
-        export_sql = f"'{export_path}'" if export_path else "NULL"
-
-        await execute_query(f"""
-            MERGE INTO {fqn('6_ai_approvals')} t
-            USING (SELECT '{approval_id}' AS approval_id) s
-            ON t.approval_id = s.approval_id
-            WHEN MATCHED THEN UPDATE SET
-                status = '{request.status}',
-                reviewed_by = '{reviewed_by}',
-                reviewed_at = '{reviewed_at}',
-                comments = '{comments_escaped}',
-                export_path = {export_sql}
-        """)
+        await execute_query(
+            f"UPDATE {fqn('6_ai_approvals')} SET "
+            " status = :status, reviewed_by = :reviewed_by, "
+            " reviewed_at = CAST(:reviewed_at AS TIMESTAMP), "
+            " comments = :comments, export_path = :export_path "
+            "WHERE approval_id = :approval_id",
+            parameters=[
+                _str_param("status", body.status),
+                _str_param("reviewed_by", reviewed_by),
+                _str_param("reviewed_at", reviewed_at),
+                _str_param("comments", comments),
+                StatementParameterListItem(name="export_path", value=export_path, type="STRING"),
+                _str_param("approval_id", approval_id),
+            ],
+        )
 
         return {
             "approval_id": approval_id,
-            "status": request.status,
+            "status": body.status,
             "reviewed_by": reviewed_by,
             "export_path": export_path,
         }

@@ -1,5 +1,5 @@
 bundle:
-  name: solvency-ii-qrt-demo-pnc
+  name: solvency-ii-qrt-demo
 
 variables:
   catalog_name:
@@ -17,10 +17,19 @@ variables:
   entity_name:
     description: Name of the reporting undertaking (synthetic)
     default: "Bricksurance SE"
+  entity_type:
+    description: Insurer type — composite (life + non-life on one balance sheet), nonlife, or life
+    default: "composite"
+  workspace_host:
+    description: Databricks workspace URL — override per-target
+    default: "https://fevm-lr-serverless-aws-us.cloud.databricks.com"
+  databricks_profile:
+    description: Databricks CLI profile to use for deploys
+    default: "DEFAULT"
 
 workspace:
-  host: https://fevm-lr-serverless-aws-us.cloud.databricks.com
-  profile: DEFAULT
+  host: ${var.workspace_host}
+  profile: ${var.databricks_profile}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CATALOG: To use a different catalog, change the default above (line 7)
@@ -40,8 +49,23 @@ sync:
 
 targets:
   dev:
+    # The original FEVM serverless target — kept frozen for the live demo
     mode: development
     default: true
+
+  dev_v2:
+    # New "next-gen" composite-insurer target on the FE dev workspace.
+    # Uses lr_dev_aws_us_catalog and a fresh schema so it cannot collide with dev.
+    mode: development
+    workspace:
+      host: https://fevm-lr-dev-aws-us.cloud.databricks.com
+      profile: DEV
+    variables:
+      catalog_name: lr_dev_aws_us_catalog
+      schema_name: solvency2demo_v2
+      workspace_host: https://fevm-lr-dev-aws-us.cloud.databricks.com
+      databricks_profile: DEV
+      entity_type: composite
 
   prod:
     mode: production
