@@ -24,6 +24,8 @@ import Architecture from './pages/Architecture';
 import LifeReserving from './pages/LifeReserving';
 import LifeUWRisk from './pages/LifeUWRisk';
 import OverlaysRegister from './pages/OverlaysRegister';
+import ActuarialLab from './pages/ActuarialLab';
+import LabModelDetail from './pages/LabModelDetail';
 import PillarChip, { type Pillar } from './components/PillarChip';
 import DemoModeToggle from './components/DemoModeToggle';
 
@@ -221,7 +223,8 @@ export default function App() {
             <Route path="/assets"          element={<Navigate to="/report/s0602" replace />} />
 
             {/* Actuarial Lab */}
-            <Route path="/lab"                element={<Navigate to="/model-governance" replace />} />
+            <Route path="/lab"                element={<ActuarialLab />} />
+            <Route path="/lab/:modelId"       element={<LabModelDetail />} />
             <Route path="/overlays"           element={<OverlaysRegister />} />
 
             {/* Pillar 2 — Governance */}

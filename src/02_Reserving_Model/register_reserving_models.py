@@ -138,11 +138,23 @@ pnc_params_v2 = {
 # COMMAND ----------
 
 def register_pyfunc_with_params(model_name, py_model, signature, params_dict, comment):
+    # Idempotent: skip re-registration if a version with this calibration_label
+    # already exists. Avoids accumulating duplicate versions on every notebook run.
+    try:
+        client = MlflowClient(registry_uri="databricks-uc")
+        existing = client.search_model_versions(f"name='{model_name}'")
+        for v in existing:
+            if v.tags and v.tags.get("calibration_label") == params_dict["calibration_label"]:
+                print(f"  ↺ {model_name} v{v.version} already has calibration {params_dict['calibration_label']} — skipping")
+                return
+    except Exception:
+        pass
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(params_dict, f)
         params_path = f.name
     with mlflow.start_run(run_name=f"{model_name.split('.')[-1]}__{params_dict['calibration_label']}"):
-        mlflow.pyfunc.log_model(
+        info = mlflow.pyfunc.log_model(
             artifact_path="model",
             python_model=py_model,
             artifacts={"parameters": params_path},
@@ -150,6 +162,15 @@ def register_pyfunc_with_params(model_name, py_model, signature, params_dict, co
             signature=signature,
             pip_requirements=["numpy", "pandas"],
         )
+        try:
+            client = MlflowClient(registry_uri="databricks-uc")
+            mv = info.registered_model_version
+            client.set_model_version_tag(
+                name=model_name, version=str(mv),
+                key="calibration_label", value=params_dict["calibration_label"],
+            )
+        except Exception as e:
+            print(f"  (could not set calibration_label tag: {e})")
 
 pnc_model_name = f"{catalog}.{schema}.reserving_pnc"
 
@@ -252,7 +273,7 @@ print(f"✓ Registered {life_model_name} (v1, v2)")
 
 # COMMAND ----------
 
-client = MlflowClient()
+client = MlflowClient(registry_uri="databricks-uc")
 
 for model_name in [pnc_model_name, life_model_name]:
     versions = sorted(
@@ -278,9 +299,9 @@ for model_name in [pnc_model_name, life_model_name]:
 # COMMAND ----------
 
 triangle = spark.sql(f"""
-    SELECT line_of_business,
+    SELECT lob_name AS line_of_business,
            CAST(accident_year AS INT) AS accident_year,
-           CAST(development_year AS INT) AS development_year,
+           CAST(development_period AS INT) AS development_year,
            CAST(cumulative_paid AS DOUBLE) AS cumulative_paid
     FROM {catalog}.{schema}.`1_raw_claims_triangles`
     WHERE reporting_period = (SELECT MAX(reporting_period) FROM {catalog}.{schema}.`1_raw_claims_triangles`)

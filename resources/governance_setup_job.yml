@@ -1,0 +1,44 @@
+# Governance setup — one-shot serverless jobs
+#
+# Two tasks, runnable independently via `databricks bundle run`:
+#   1. register_reserving_models — chain-ladder + life pyfunc to UC MLflow
+#   2. bootstrap_governance      — populate 6_gov_* tables (alternative to
+#                                  the local scripts/seed_governance.py)
+#
+# Both run on serverless compute (this is a serverless-only workspace).
+
+resources:
+  jobs:
+    governance_setup:
+      name: "Governance Setup — Reserving Models + 6_gov_* tables"
+      parameters:
+        - name: catalog_name
+          default: ${var.catalog_name}
+        - name: schema_name
+          default: ${var.schema_name}
+        - name: reporting_year
+          default: "2025"
+
+      tasks:
+        - task_key: register_reserving_models
+          notebook_task:
+            notebook_path: ../src/02_Reserving_Model/register_reserving_models.py
+            base_parameters:
+              catalog_name: ${var.catalog_name}
+              schema_name: ${var.schema_name}
+          environment_key: default
+
+        - task_key: bootstrap_governance
+          notebook_task:
+            notebook_path: ../src/01_Bootstrap_Governance/bootstrap_governance.py
+            base_parameters:
+              catalog_name: ${var.catalog_name}
+              schema_name: ${var.schema_name}
+              reporting_year: "2025"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "1"
+            dependencies: ["mlflow", "numpy", "pandas"]

@@ -747,3 +747,113 @@ export async function approveOverlay(overlay_id: string, comments?: string): Pro
 export async function retireOverlay(overlay_id: string): Promise<Row> {
   return postJson(`/api/overlays/${overlay_id}/retire`);
 }
+
+// ─── Actuarial Lab — unified governance ───────────────────────────────
+
+export interface LabModelRow {
+  model_id: string;
+  label: string;
+  engine: string;
+  engine_tag: 'native' | 'external';
+  production_version: string | null;
+  candidate_version: string | null;
+  n_versions: number;
+  owner?: string | null;
+  artefact_table?: string | null;
+  last_promotion_status?: string | null;
+  last_promotion_quarter?: string | null;
+  last_promotion_at?: string | null;
+  last_promotion_approver?: string | null;
+  pending_promotions?: number;
+  error?: string | null;
+}
+
+export interface ModelVersion {
+  version: string;
+  comment?: string;
+  created_at?: string;
+  created_by?: string;
+  status?: string;
+}
+
+export interface ModelAlias { alias_name: string; version_num?: number; version_label?: string }
+
+export interface ModelDetail {
+  model_id: string;
+  label: string;
+  engine: string;
+  engine_tag: 'native' | 'external';
+  state: {
+    full_name: string;
+    aliases: ModelAlias[];
+    versions?: ModelVersion[];
+    rows?: Row[];
+    artefact_table?: string;
+    error?: string;
+  };
+}
+
+export interface ModelDiagnostic {
+  model_name: string;
+  version_label: string;
+  reporting_period: string;
+  diagnostic_name: string;
+  metric_value: number | string;
+  metric_text: string;
+  threshold_low: number | string;
+  threshold_high: number | string;
+  passed: boolean | string;
+  computed_at: string;
+}
+
+export interface PromotionRow {
+  promotion_id: string;
+  model_name: string;
+  model_type: string;
+  from_alias: string | null;
+  to_alias: string;
+  from_version: string | null;
+  to_version: string;
+  quarter: string;
+  diagnostics_passed: boolean | string;
+  justification: string;
+  approver: string | null;
+  approved_at: string | null;
+  promoted_by: string | null;
+  promoted_at: string | null;
+  status: string;
+}
+
+export async function fetchLabModels(): Promise<{ models: LabModelRow[] }> {
+  return fetchJson('/api/governance/models');
+}
+
+export async function fetchLabModel(model_id: string): Promise<ModelDetail> {
+  return fetchJson(`/api/governance/models/${model_id}`);
+}
+
+export async function fetchLabDiagnostics(model_id: string, period?: string): Promise<{ diagnostics: ModelDiagnostic[] }> {
+  return fetchJson(`/api/governance/models/${model_id}/diagnostics${period ? `?period=${encodeURIComponent(period)}` : ''}`);
+}
+
+export async function fetchLabPromotions(model_id: string): Promise<{ promotions: PromotionRow[] }> {
+  return fetchJson(`/api/governance/models/${model_id}/promotions`);
+}
+
+export async function promoteModel(model_id: string, payload: {
+  target_alias?: 'production' | 'candidate' | 'archive';
+  candidate_version?: string;
+  quarter: string;
+  justification: string;
+  approver?: string;
+}): Promise<Row> {
+  return postJson(`/api/governance/models/${model_id}/promote`, payload);
+}
+
+export async function fetchGovernanceSummary(period?: string): Promise<{
+  pending_promotions: number;
+  approved_promotions: number;
+  models_with_failed_diagnostics: { model_name: string; n: number }[];
+}> {
+  return fetchJson(`/api/governance/summary${period ? `?period=${encodeURIComponent(period)}` : ''}`);
+}
