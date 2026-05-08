@@ -579,3 +579,69 @@ export async function generateOrsaNarrative(run_id: string): Promise<OrsaNarrati
 export async function fetchOrsaNarratives(run_id: string): Promise<{ narratives: OrsaNarrative[] }> {
   return fetchJson(`/api/orsa/narratives/${run_id}`);
 }
+
+// ─── AFR / SFCR / RSR — shared shape ─────────────────────────────────
+
+export interface DraftListRow {
+  draft_id: string;
+  reporting_period: string;
+  section_id: string;
+  version: number;
+  status: string;
+  content_hash: string;
+  ai_model: string;
+  created_at: string;
+  updated_at: string;
+  approved_at: string | null;
+  approved_by: string | null;
+}
+
+export interface DocSection { id: string; title: string; summary?: string }
+
+// AFR
+export async function fetchAfrSections(): Promise<{ sections: DocSection[] }> { return fetchJson('/api/afr/sections'); }
+export async function fetchAfrDrafts(period?: string): Promise<{ drafts: DraftListRow[] }> { return fetchJson(`/api/afr/drafts${period ? `?reporting_period=${period}` : ''}`); }
+export async function fetchAfrDraft(draft_id: string): Promise<{ draft: Row }> { return fetchJson(`/api/afr/draft/${draft_id}`); }
+export async function createAfrDraft(section_id: string, reporting_period?: string): Promise<Row> { return postJson('/api/afr/draft', { section_id, reporting_period }); }
+export async function saveAfrDraft(draft_id: string, content: string): Promise<Row> { return postJson('/api/afr/save', { draft_id, content }); }
+export async function approveAfrDraft(draft_id: string): Promise<Row> { return postJson('/api/afr/approve', { draft_id }); }
+
+// SFCR
+export interface Citation { table: string; cell: string }
+export interface Paragraph { text: string; citations: Citation[] }
+
+export async function fetchSfcrSections(): Promise<{ sections: DocSection[] }> { return fetchJson('/api/sfcr/sections'); }
+export async function fetchSfcrDrafts(period?: string): Promise<{ drafts: DraftListRow[] }> { return fetchJson(`/api/sfcr/drafts${period ? `?reporting_period=${period}` : ''}`); }
+export async function createSfcrDraft(section_id: string, reporting_period?: string): Promise<Row & { paragraphs: Paragraph[] }> { return postJson('/api/sfcr/draft', { section_id, reporting_period }); }
+export async function saveSfcrDraft(draft_id: string, paragraphs: Paragraph[]): Promise<Row> { return postJson('/api/sfcr/save', { draft_id, paragraphs }); }
+export async function approveSfcrDraft(draft_id: string): Promise<Row> { return postJson('/api/sfcr/approve', { draft_id }); }
+export async function fetchSfcrDraft(draft_id: string): Promise<{ draft: Row }> { return fetchJson(`/api/sfcr/draft/${draft_id}`); }
+
+// RSR
+export async function fetchRsrSections(): Promise<{ sections: DocSection[] }> { return fetchJson('/api/rsr/sections'); }
+export async function fetchRsrDrafts(period?: string): Promise<{ drafts: DraftListRow[] }> { return fetchJson(`/api/rsr/drafts${period ? `?reporting_period=${period}` : ''}`); }
+export async function createRsrDraft(section_id: string, reporting_period?: string): Promise<Row & { paragraphs: Paragraph[] }> { return postJson('/api/rsr/draft', { section_id, reporting_period }); }
+export async function saveRsrDraft(draft_id: string, paragraphs: Paragraph[]): Promise<Row> { return postJson('/api/rsr/save', { draft_id, paragraphs }); }
+export async function approveRsrDraft(draft_id: string): Promise<Row> { return postJson('/api/rsr/approve', { draft_id }); }
+
+// Model Governance
+export interface ModelComparisonRow {
+  component: string;
+  champion_eur: number;
+  challenger_eur: number;
+  delta_eur: number;
+  delta_pct: number;
+}
+export async function fetchModelRegistry(): Promise<{ models: Row[] }> { return fetchJson('/api/model-governance/registry'); }
+export async function fetchModelComparison(): Promise<{ model_name: string; comparison: ModelComparisonRow[]; champion_error?: string; challenger_error?: string }> { return fetchJson('/api/model-governance/comparison'); }
+export async function fetchModelRuns(): Promise<{ runs: Row[] }> { return fetchJson('/api/model-governance/runs'); }
+export async function fetchModelApprovals(): Promise<{ approvals: Row[] }> { return fetchJson('/api/model-governance/approvals'); }
+export async function recordModelApproval(model_name: string, model_version: string, decision: 'approved' | 'rejected', comments?: string): Promise<Row> { return postJson('/api/model-governance/approvals', { model_name, model_version, decision, comments }); }
+
+// Internal Controls
+export interface ControlRow { id: string; layer: string; control: string; description: string; implementation: string }
+export interface ControlsLayer { layer: string; controls: ControlRow[] }
+export async function fetchControlsMatrix(): Promise<{ layers: ControlsLayer[]; total_controls: number; layer_count: number; forbidden_patterns: string[] }> { return fetchJson('/api/internal-controls/matrix'); }
+export async function fetchAgentAudit(limit = 50): Promise<{ calls: Row[] }> { return fetchJson(`/api/internal-controls/audit?limit=${limit}`); }
+export async function fetchBlockedCounter(): Promise<{ forbidden_blocks: number; pii_flags: number; rate_limited: number; errors: number; total_calls: number }> { return fetchJson('/api/internal-controls/blocked-counter'); }
+export async function fetchArchitectureAssertion(): Promise<{ invariants: { title: string; detail: string; implementation: string }[] }> { return fetchJson('/api/internal-controls/architecture-assertion'); }

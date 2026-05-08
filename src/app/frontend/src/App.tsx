@@ -15,6 +15,11 @@ import Genie from './pages/Genie';
 import RegulatorQA from './pages/RegulatorQA';
 import Archive from './pages/Archive';
 import Orsa from './pages/Orsa';
+import Afr from './pages/Afr';
+import Sfcr from './pages/Sfcr';
+import Rsr from './pages/Rsr';
+import ModelGovernance from './pages/ModelGovernance';
+import InternalControls from './pages/InternalControls';
 import PillarPagePlaceholder from './components/PillarPagePlaceholder';
 import PillarChip, { type Pillar } from './components/PillarChip';
 
@@ -202,14 +207,14 @@ export default function App() {
 
             {/* Pillar 2 — Governance */}
             <Route path="/orsa"               element={<Orsa />} />
-            <Route path="/model-governance"   element={<PillarPagePlaceholder pillar={2} title="Model Governance" subtitle="Champion vs Challenger comparison + audit trail" comingIn="Phase 2.9" fallbackHint="View SCR breakdown" fallbackPath="/scr" />} />
-            <Route path="/afr"                element={<PillarPagePlaceholder pillar={2} title="Actuarial Function Report (Article 48)" subtitle="TPs adequacy · UW adequacy · RI adequacy · Internal model opinion" comingIn="Phase 2.6" fallbackHint="View QRT pack" fallbackPath="/archive" />} />
-            <Route path="/internal-controls"  element={<PillarPagePlaceholder pillar={2} title="Internal Controls" subtitle="12 AI guardrail controls × 7 layers; live audit trail" comingIn="Phase 2.10" fallbackHint="View Regulator Q&A" fallbackPath="/regulator-qa" />} />
+            <Route path="/model-governance"   element={<ModelGovernance />} />
+            <Route path="/afr"                element={<Afr />} />
+            <Route path="/internal-controls"  element={<InternalControls />} />
 
             {/* Pillar 3 — Disclosure */}
             <Route path="/archive"            element={<Archive />} />
-            <Route path="/sfcr"               element={<PillarPagePlaceholder pillar={3} title="SFCR — Solvency and Financial Condition Report" subtitle="Public disclosure narrative, section by section, with cell-level citations" comingIn="Phase 2.7" fallbackHint="View QRT pack" fallbackPath="/archive" />} />
-            <Route path="/rsr"                element={<PillarPagePlaceholder pillar={3} title="RSR — Regular Supervisory Report" subtitle="Supervisor-only disclosure (lighter than SFCR)" comingIn="Phase 2.8" fallbackHint="View QRT pack" fallbackPath="/archive" />} />
+            <Route path="/sfcr"               element={<Sfcr />} />
+            <Route path="/rsr"                element={<Rsr />} />
             <Route path="/regulator-qa"       element={<RegulatorQA />} />
 
             {/* Other / legacy */}

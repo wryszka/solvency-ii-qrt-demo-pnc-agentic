@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.routes import reports, approvals, monitoring, regulator, genie, supervisor, archive, landing, orsa
+from server.routes import reports, approvals, monitoring, regulator, genie, supervisor, archive, landing, orsa, afr, sfcr, rsr, model_governance, internal_controls
 from server.config import get_dashboard_id, get_genie_space_id, get_workspace_host, get_request_user
 
 logging.basicConfig(
@@ -29,6 +29,21 @@ async def _warmup_warehouse():
         logger.exception("Warehouse warmup failed — will retry on first request")
 
 
+async def _ensure_agent_audit_table():
+    """Create 5_mon_agent_audit table — populated by the audit middleware."""
+    try:
+        from server.sql import execute_query
+        from server.config import fqn
+        await execute_query(
+            f"CREATE TABLE IF NOT EXISTS {fqn('5_mon_agent_audit')} ("
+            " call_id STRING, called_at TIMESTAMP, user_email STRING,"
+            " method STRING, path STRING, status_code INT,"
+            " duration_ms BIGINT, status STRING)"
+        )
+    except Exception:
+        logger.exception("Failed to ensure 5_mon_agent_audit table")
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     logger.info("Starting Solvency II QRT Reporting App")
@@ -37,6 +52,10 @@ async def lifespan(application: FastAPI):
         logger.info("Approvals table ready")
     except Exception:
         logger.exception("Failed to ensure approvals table — will retry on first request")
+    try:
+        await _ensure_agent_audit_table()
+    except Exception:
+        logger.exception("Failed to ensure agent audit table")
     # Fire-and-forget warmup so we don't block app startup
     import asyncio
     asyncio.create_task(_warmup_warehouse())
@@ -59,16 +78,24 @@ app.include_router(supervisor.router)
 app.include_router(archive.router)
 app.include_router(landing.router)
 app.include_router(orsa.router)
+app.include_router(afr.router)
+app.include_router(sfcr.router)
+app.include_router(rsr.router)
+app.include_router(model_governance.router)
+app.include_router(internal_controls.router)
 
 
 @app.middleware("http")
 async def audit_log_middleware(request: Request, call_next):
-    """Log every API request with the resolved user identity.
+    """Log every API request to stdout AND persist to 5_mon_agent_audit.
 
-    Skips the static SPA assets to keep the log readable. Failures here must
-    not break the request — wrap the user lookup defensively.
+    Skips static SPA assets, healthcheck, and the audit fetch itself (so
+    the page that reads the table doesn't write to the table).
     """
-    if not request.url.path.startswith("/api/"):
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if path in ("/api/health", "/api/me") or path.startswith("/api/internal-controls/audit"):
         return await call_next(request)
 
     try:
@@ -76,21 +103,56 @@ async def audit_log_middleware(request: Request, call_next):
     except Exception:
         user = "unknown"
     started = time.monotonic()
+    response = None
+    err = None
     try:
         response = await call_next(request)
-        elapsed_ms = int((time.monotonic() - started) * 1000)
-        logger.info(
-            "[audit] %s %s user=%s status=%s duration_ms=%d",
-            request.method, request.url.path, user, response.status_code, elapsed_ms,
-        )
         return response
-    except Exception:
-        elapsed_ms = int((time.monotonic() - started) * 1000)
-        logger.exception(
-            "[audit] %s %s user=%s status=ERROR duration_ms=%d",
-            request.method, request.url.path, user, elapsed_ms,
-        )
+    except Exception as exc:
+        err = exc
         raise
+    finally:
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        status_code = response.status_code if response is not None else 500
+        status_label = "ok" if (response is not None and 200 <= status_code < 400) else (
+            "error" if response is not None else "exception"
+        )
+        # stdout audit
+        if err:
+            logger.exception(
+                "[audit] %s %s user=%s status=ERROR duration_ms=%d",
+                request.method, path, user, elapsed_ms,
+            )
+        else:
+            logger.info(
+                "[audit] %s %s user=%s status=%s duration_ms=%d",
+                request.method, path, user, status_code, elapsed_ms,
+            )
+        # Persist — best-effort. Never break the request loop.
+        try:
+            import uuid
+            from datetime import datetime, timezone
+            from databricks.sdk.service.sql import StatementParameterListItem
+            from server.config import fqn
+            from server.sql import execute_query
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            await execute_query(
+                f"INSERT INTO {fqn('5_mon_agent_audit')} "
+                "(call_id, called_at, user_email, method, path, status_code, duration_ms, status) "
+                "VALUES (:cid, CAST(:ts AS TIMESTAMP), :u, :m, :p, :sc, :d, :st)",
+                parameters=[
+                    StatementParameterListItem(name="cid", value=str(uuid.uuid4())),
+                    StatementParameterListItem(name="ts",  value=now),
+                    StatementParameterListItem(name="u",   value=user),
+                    StatementParameterListItem(name="m",   value=request.method),
+                    StatementParameterListItem(name="p",   value=path),
+                    StatementParameterListItem(name="sc",  value=str(status_code), type="INT"),
+                    StatementParameterListItem(name="d",   value=str(elapsed_ms),  type="LONG"),
+                    StatementParameterListItem(name="st",  value=status_label),
+                ],
+            )
+        except Exception:
+            logger.debug("Audit persist failed (non-fatal)", exc_info=True)
 
 
 @app.get("/api/health")
