@@ -668,3 +668,82 @@ export async function fetchControlsMatrix(): Promise<{ layers: ControlsLayer[]; 
 export async function fetchAgentAudit(limit = 50): Promise<{ calls: Row[] }> { return fetchJson(`/api/internal-controls/audit?limit=${limit}`); }
 export async function fetchBlockedCounter(): Promise<{ forbidden_blocks: number; pii_flags: number; rate_limited: number; errors: number; total_calls: number }> { return fetchJson('/api/internal-controls/blocked-counter'); }
 export async function fetchArchitectureAssertion(): Promise<{ invariants: { title: string; detail: string; implementation: string }[] }> { return fetchJson('/api/internal-controls/architecture-assertion'); }
+
+// ─── Overlays Register ───────────────────────────────────────────────
+
+export interface Overlay {
+  overlay_id: string;
+  model_name: string;
+  quarter: string;
+  line_of_business: string;
+  accident_year: number | null;
+  magnitude_eur: number | string;
+  direction: 'increase' | 'decrease';
+  category: string;
+  rationale: string;
+  author: string;
+  created_at: string;
+  approver: string | null;
+  approved_at: string | null;
+  status: 'draft' | 'pending_approval' | 'approved' | 'retired';
+  linked_qrt_cells: string[];
+  lifecycle_action: 'new' | 'renewed_from_prior' | 'modified_from_prior' | 'retired';
+  prior_overlay_id: string | null;
+}
+
+export interface OverlaySummary {
+  by_status: { status: string; n: number; total_magnitude_eur: number | string }[];
+  by_category: { category: string; n: number; total_magnitude_eur: number | string }[];
+  by_line_of_business: { line_of_business: string; n: number; total_magnitude_eur: number | string }[];
+}
+
+export interface OverlayCreate {
+  model_name: string;
+  quarter: string;
+  line_of_business: string;
+  accident_year?: number | null;
+  magnitude_eur: number;
+  direction: 'increase' | 'decrease';
+  category: string;
+  rationale: string;
+  linked_qrt_cells?: string[];
+  lifecycle_action?: 'new' | 'renewed_from_prior' | 'modified_from_prior';
+  prior_overlay_id?: string | null;
+  submit_for_approval?: boolean;
+}
+
+export async function fetchOverlays(filters?: {
+  quarter?: string; line_of_business?: string; status?: string; model_name?: string;
+}): Promise<{ overlays: Overlay[] }> {
+  const qs = new URLSearchParams();
+  if (filters?.quarter) qs.append('quarter', filters.quarter);
+  if (filters?.line_of_business) qs.append('line_of_business', filters.line_of_business);
+  if (filters?.status) qs.append('status', filters.status);
+  if (filters?.model_name) qs.append('model_name', filters.model_name);
+  const q = qs.toString();
+  return fetchJson(`/api/overlays${q ? `?${q}` : ''}`);
+}
+
+export async function fetchOverlay(overlay_id: string): Promise<{ overlay: Overlay }> {
+  return fetchJson(`/api/overlays/${overlay_id}`);
+}
+
+export async function fetchOverlayLineage(overlay_id: string): Promise<{ overlay: Overlay; lifecycle_chain: Overlay[] }> {
+  return fetchJson(`/api/overlays/lineage/${overlay_id}`);
+}
+
+export async function fetchOverlaySummary(quarter?: string): Promise<OverlaySummary> {
+  return fetchJson(`/api/overlays/summary${quarter ? `?quarter=${encodeURIComponent(quarter)}` : ''}`);
+}
+
+export async function createOverlay(payload: OverlayCreate): Promise<{ overlay_id: string; status: string; required_approval_role: string }> {
+  return postJson('/api/overlays', payload);
+}
+
+export async function approveOverlay(overlay_id: string, comments?: string): Promise<Row> {
+  return postJson(`/api/overlays/${overlay_id}/approve`, { comments });
+}
+
+export async function retireOverlay(overlay_id: string): Promise<Row> {
+  return postJson(`/api/overlays/${overlay_id}/retire`);
+}

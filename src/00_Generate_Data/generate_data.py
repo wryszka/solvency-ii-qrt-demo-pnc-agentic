@@ -2141,6 +2141,29 @@ recon_rows.append({
     "status": "MATCH" if abs(qrt_count - N_ASSETS) <= 10 else "WITHIN_TOLERANCE",
 })
 
+# Check 5: Pain G — reserve-capital divergence
+# Reserving committee updated property dev factor mid-Q4 (storm overlay), but the
+# capital model is running off the Q3 reserving parameter. SCR understated by ~€8M.
+# This row is engineered to MATCH for Q1-Q3 and MISMATCH for Q4 to surface the issue.
+is_q4_with_storm_overlay = reporting_period.endswith("-Q4")
+divergence_eur = 8_200_000.0 if is_q4_with_storm_overlay else 0.0
+recon_rows.append({
+    "reporting_period": reporting_period,
+    "check_name": "reserve_capital_divergence",
+    "check_description": (
+        "Reserving model property dev factor must equal capital model property dev factor. "
+        "Mid-quarter overlay updates to reserving must be propagated to the capital model "
+        "before close. Difference reflects SCR understatement attributable to stale parameter."
+    ),
+    "source_qrt": "S.05.01",
+    "target_qrt": "S.25.01",
+    "source_value": round(divergence_eur, 2),
+    "target_value": 0.0,
+    "difference": round(divergence_eur, 2),
+    "tolerance": 1_000_000.0,
+    "status": "MISMATCH" if is_q4_with_storm_overlay else "MATCH",
+})
+
 write_quarterly_table(pd.DataFrame(recon_rows), "5_mon_cross_qrt_reconciliation",
             "Cross-QRT reconciliation checks — consistency validation between QRTs")
 

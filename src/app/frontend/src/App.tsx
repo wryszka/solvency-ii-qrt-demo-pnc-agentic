@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react
 import {
   Building2, FileText, BarChart3, Activity, ShieldCheck, Bot, Code2, Home,
   Archive as ArchiveIcon, Shield, Landmark, Flame, FlaskConical,
-  Scale, Workflow, BookOpen, Lock, Newspaper, ScrollText,
+  Scale, Workflow, BookOpen, Lock, Newspaper, ScrollText, Layers, Beaker,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Landing from './pages/Landing';
@@ -23,6 +23,7 @@ import InternalControls from './pages/InternalControls';
 import Architecture from './pages/Architecture';
 import LifeReserving from './pages/LifeReserving';
 import LifeUWRisk from './pages/LifeUWRisk';
+import OverlaysRegister from './pages/OverlaysRegister';
 import PillarChip, { type Pillar } from './components/PillarChip';
 import DemoModeToggle from './components/DemoModeToggle';
 
@@ -59,6 +60,14 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/nl-uw-risk',         icon: Flame,         label: 'Non-Life UW Risk',           pillar: 1 },
       { to: '/life-uw-risk',       icon: FlaskConical,  label: 'Life UW Risk',               pillar: 1 },
       { to: '/assets',             icon: Landmark,      label: 'Asset Register',             pillar: 1 },
+    ],
+  },
+  {
+    heading: 'Actuarial Lab',
+    pillar: 'cross',
+    entries: [
+      { to: '/lab',                icon: Beaker,        label: 'Models',                     pillar: 'cross' },
+      { to: '/overlays',           icon: Layers,        label: 'Overlays Register',          pillar: 'cross' },
     ],
   },
   {
@@ -210,6 +219,10 @@ export default function App() {
             <Route path="/nl-uw-risk"      element={<Navigate to="/report/s2606" replace />} />
             <Route path="/life-uw-risk"    element={<LifeUWRisk />} />
             <Route path="/assets"          element={<Navigate to="/report/s0602" replace />} />
+
+            {/* Actuarial Lab */}
+            <Route path="/lab"                element={<Navigate to="/model-governance" replace />} />
+            <Route path="/overlays"           element={<OverlaysRegister />} />
 
             {/* Pillar 2 — Governance */}
             <Route path="/orsa"               element={<Orsa />} />

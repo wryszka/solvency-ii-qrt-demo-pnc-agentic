@@ -161,14 +161,23 @@ async def q4_pain_summary():
             SELECT model_version, calibration_year FROM {fqn('5_mon_model_registry_log')}
             ORDER BY model_version DESC LIMIT 5
         """
+        # Pain G — reserve-capital divergence (storm overlay applied to reserving model
+        # but capital model is on prior quarter's parameter; SCR understated)
+        pain_g_q = f"""
+            SELECT difference, status, source_qrt, target_qrt
+            FROM {fqn('5_mon_cross_qrt_reconciliation')}
+            WHERE check_name = 'reserve_capital_divergence'
+              AND reporting_period = (SELECT MAX(reporting_period) FROM {fqn('5_mon_cross_qrt_reconciliation')})
+        """
 
-        a, b, c, d, e, f = await asyncio.gather(
+        a, b, c, d, e, f, g = await asyncio.gather(
             execute_query_cached(pain_a_q, ttl_seconds=30),
             execute_query_cached(pain_b_q, ttl_seconds=30),
             execute_query_cached(pain_c_q, ttl_seconds=30),
             execute_query_cached(pain_d_q, ttl_seconds=30),
             execute_query_cached(pain_e_q, ttl_seconds=30),
             execute_query_cached(pain_f_q, ttl_seconds=120),
+            execute_query_cached(pain_g_q, ttl_seconds=60),
             return_exceptions=True,
         )
 
@@ -183,6 +192,7 @@ async def q4_pain_summary():
         c_row = _row(c, {})
         d_rows = b if False else (d if not isinstance(d, Exception) else [])
         e_row = _row(e, {})
+        g_row = _row(g, {})
 
         # Pain D delta: Q4 lapse vs Q3 lapse
         lapse_q4 = float(d_rows[0].get("lapse_pct", 0) or 0) if len(d_rows) >= 1 else 0
@@ -255,6 +265,19 @@ async def q4_pain_summary():
                 "headline": "2026 calibration: NL UW correlation +1.5%, op risk to 4.0%, life lapse stress ×1.15 → ≈+4% SCR",
                 "drill_path": "/model-governance",
                 "context": {"model": "standard_formula"},
+            },
+            {
+                "id": "G",
+                "title": "Reserve-capital divergence",
+                "fired": (g_row.get("status") == "MISMATCH"),
+                "severity": "high" if g_row.get("status") == "MISMATCH" else "ok",
+                "headline": (
+                    f"capital model on prior-quarter reserving parameter — SCR understated by {_fmt_eur(g_row.get('difference'))}"
+                    if g_row.get("status") == "MISMATCH"
+                    else "reserving + capital parameters aligned"
+                ),
+                "drill_path": "/lab",
+                "context": {"divergence_eur": g_row.get("difference")},
             },
         ]
         return {"pains": pains}
