@@ -1,450 +1,289 @@
-# Solvency II QRT Demo — Runbook
+# Solvency II at the Speed of Lakehouse — Forum Talk Runbook
 
-> **Bricksurance SE** — A mid-size European composite insurer (P&C + Life on one balance sheet)
-> producing quarterly regulatory reports on Databricks.
-
-This is your single reference for running the demo. It covers setup, the demo narrative, and links to every asset.
-
-> **Note (2026-Q2 onwards):** The composite reframe + life book + S.12.01 + Prophet engine + Q4 2025 engineered pains
-> are deployed to the new `dev_v2` bundle target on `fevm-lr-dev-aws-us` (catalog `lr_dev_aws_us_catalog`,
-> schema `solvency2demo_v2`). The original FEVM serverless demo (links below) stays frozen until the next
-> release is signed off.
+> Forum talk script. 25-minute canonical version, with a 15-minute cut clearly marked.
+> Bricksurance SE — a mid-size European composite (P&C + Life on one balance sheet) — is closing
+> Q4 2025 on a single platform.
 
 ---
 
-## Quick Links (update after deploy)
+## Quick links (DEV deployment)
 
 | Asset | URL |
-|-------|-----|
-| **App (Agentic)** | https://solvency2-qrt-ai-7474659673789953.aws.databricksapps.com |
-| **Dashboard** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/dashboardsv3/01f1270282cd14fe8c155d26361eec82 |
-| **Genie** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/genie/rooms/01f12703e70110e5b4aeec0e5f7ee98c |
-| **Workspace Notebooks** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/#workspace/Workspace/Users/laurence.ryszka@databricks.com/Solvency%20II%20QRT%20Demo |
-| **S.06.02 Pipeline** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/pipelines/f197effe-b00d-4e25-a107-c526c3f7b81b |
-| **S.05.01 Pipeline** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/pipelines/be783357-612d-49ae-878b-3ddd2c9091e1 |
-| **S.25.01 Pipeline** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/pipelines/0284efb1-ea5c-4f00-bcca-ec167a1f5b87 |
-| **S.26.06 Pipeline** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/pipelines/249d6207-55d0-4e86-af47-391c1f9f1c10 |
-| **S.26.06 Job** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/#job/877567542678417 |
-| **Model Registry** | https://fevm-lr-serverless-aws-us.cloud.databricks.com/explore/data/models/lr_serverless_aws_us_catalog/solvency2demo/standard_formula |
-| **Schema** | `lr_serverless_aws_us_catalog.solvency2demo_ai` (36+ tables) |
-| **AI Agent Notebooks** | `/Workspace/Users/laurence.ryszka@databricks.com/Solvency II QRT Demo/05_AI_Agents/` |
-| **Security Framework** | `05_AI_Agents/agentic_security_framework` |
+|---|---|
+| **App (DEV)** | https://solvency2-qrt-ai-dev-7474656169654171.aws.databricksapps.com |
+| **Forum-mode landing** | …/?mode=forum |
+| **Architecture asset** | …/architecture |
+| **Lakeview dashboard** | https://fevm-lr-dev-aws-us.cloud.databricks.com/dashboardsv3/01f14b083d0f106f98420906328d6fd5 |
+| **Genie space** | https://fevm-lr-dev-aws-us.cloud.databricks.com/genie/rooms/01f14b086fda159fa26b3344740e6db5 |
+| **Schema** | `lr_dev_aws_us_catalog.solvency2demo_v2` |
+| **Pre-flight** | `./scripts/preflight_check.sh` (run before walking on stage) |
+| **Cache bake** | `./scripts/bake_cache.sh` (run once before the talk) |
+| **Cue cards** | [`docs/cue_cards.md`](docs/cue_cards.md) |
+| **Fallback summary** | [`docs/demo_fallbacks/index.html`](docs/demo_fallbacks/index.html) |
+
+> **Pre-flight required before stage:** run `./scripts/preflight_check.sh`. If it returns non-zero,
+> fix or fall back to cached mode (sidebar toggle → "Cached") before going on.
 
 ---
 
-## First-Time Setup (5 min)
+## Title slide
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/wryszka/solvency-ii-qrt-demo-pnc.git
-cd solvency-ii-qrt-demo-pnc
+**Solvency II at the Speed of Lakehouse**
+A working demo of the actuarial cycle on Databricks. Bricksurance SE, Q4 2025.
 
-# 2. Authenticate the Databricks CLI
-databricks auth login --profile DEFAULT
+Talk length: 25 min canonical, 15 min cut available. Three sections:
 
-# 3. Run the deploy script (creates everything)
-bash deploy_demo.sh
-
-# The script will:
-#   - Create workspace folders and upload notebooks
-#   - Bootstrap Q1-Q3 synthetic data (~6 min)
-#   - Deploy DAB bundle (4 DLT pipelines + 4 workflow jobs)
-#   - Register the Standard Formula MLflow model
-#   - Trigger all 4 QRT pipelines
-#   - Add table/column descriptions
-#   - Create the Lakeview dashboard (5 tabs)
-#   - Create the Genie space (30 tables)
-#   - Deploy the Databricks App with permissions
-
-# 4. Note the asset URLs printed at the end — update the Quick Links above
-```
-
-**Override defaults:**
-```bash
-bash deploy_demo.sh --catalog my_catalog --schema my_schema --profile STAGING
-```
+1. **Opening** (3 min) — regime + integration tax problem
+2. **Demo: Monday morning at a composite** (3:30 → 22:30 — 19 min)
+3. **Close** (2:30) — architectural takeaway
 
 ---
 
-## Teardown (2 min)
+## Opening (3 min, verbatim)
 
-To completely remove everything:
+> *(Stand at the side of the stage. Architecture page open behind you, but don't talk to it yet.)*
 
-1. Open `Solvency II QRT Demo / 00_Generate_Data / full_teardown` in the workspace
-2. Set `confirm` = `yes`
-3. Run all cells
+Solvency II is the European prudential framework for insurance.
+It's been live since 2016. Three pillars:
+**Pillar 1**, the capital you must hold.
+**Pillar 2**, the governance around how you decide what to hold.
+**Pillar 3**, the disclosure of both — to your supervisor, and to the public.
 
-Or from the CLI:
-```bash
-# Upload and run the teardown notebook
-databricks workspace import "/Workspace/Users/$USER/teardown_tmp/full_teardown" \
-    --file src/00_Generate_Data/full_teardown.py --format SOURCE --language PYTHON --overwrite
-databricks jobs submit --json '{...}'  # see deploy_demo.sh for pattern
-```
+If you're an insurance actuary in Europe, your year is structured by these pillars.
+You spend the first six weeks of every quarter producing the Pillar 1 quantitative reporting templates.
+You spend the rest of the year producing Pillar 2 reports — your ORSA, your actuarial function report, your model governance — and the public Pillar 3 SFCR.
 
----
+> *(Walk centre stage. Click to architecture diagram.)*
 
-## Demo Narrative: "Maria's Morning" (~10 min)
+This is what most insurers' Solvency II stack looks like underneath.
+Prophet for life valuation. Igloo for cat models. ResQ or Radar for non-life reserving.
+Tagetik or one of its competitors for the actual reporting templates.
+Excel filling the gaps. SharePoint for the audit trail. FTP and email for everything that doesn't fit.
 
-### Setting
+I've sat in actuarial functions for ten years. I have never seen this be calm.
+The integration cost — pulling the same numbers between these systems, reconciling them,
+explaining differences to the auditor — is the **integration tax**, and it's where most of the cycle's stress lives.
 
-> It's mid-January. Q4 2025 just closed. **Maria** is the reporting actuary at Bricksurance SE. She needs to produce four QRTs and submit them to BaFin by end of month.
+> *(Click to right-hand side of architecture diagram.)*
 
----
+What you're going to see today: the same engines, on a single layer.
+Prophet still does life. Igloo still does cat. The actuarial method doesn't change.
+What changes is the surface area on top — pipelines, governance, disclosure all sitting on
+the same data, the same governance, the same audit trail.
 
-### Scene 1: Control Tower (1.5 min)
+Bricksurance SE — a synthetic mid-size European composite — is going to close their
+Q4 2025 cycle in front of you. Twenty minutes. Three pillars.
 
-**Open the app** → click **Monitor**
-
-> "First thing every morning during reporting season — have my data feeds arrived?"
-
-**Show:**
-- **KPI strip** at the top: feeds received, DQ pass rate, reconciliation checks, quarantined rows
-- **Feed status cards**: each data feed with source system name, row count, SLA status
-  - Reinsurance arrived 11 days early — "the RI team is always first"
-  - Expenses arrived just in time — "finance usually cuts it close"
-- **Cross-QRT Reconciliation** at the bottom: total assets match balance sheet, GWP matches premiums, own funds exceed SCR — all MATCH
-
-> "In the old world I'd be sending emails asking 'has your data landed?' Now I open one page."
+> **Talk title beat:** *Solvency II at the Speed of Lakehouse.*
 
 ---
 
-### Scene 2: Data Quality (1 min)
+## Demo opening — set the scene (3:30, 30 seconds)
 
-**Click** → **Data Quality** in the nav
+> *(Click to the app. Forum-mode landing.)*
 
-> "Before I look at the numbers: how clean is the data?"
+This is Maria's view on Monday morning. She's the Head of Finance & Reporting at Bricksurance.
+The reporting deadline is Friday. The cycle she's running covers about
+EUR 6.5 billion of assets, EUR 2 billion of GWP on the P&C side, and EUR 1.2 billion of life
+technical provisions. Composite, in one place.
 
-**Show:**
-- **Overall pass rate**: 99.9% across 14 DLT expectations
-- **Trend chart**: quality improving Q1→Q3 (quarantined rows declining)
-- **Per-pipeline breakdown**: expand S.06.02 — 4 assets dropped for null IDs
-- **Action badges**: `DROP ROW` (quarantined), `FAIL UPDATE` (blocks pipeline), `WARN` (logged)
+Three pillars. Capital. Governance. Disclosure.
+Each column shows the deliverables and a live status pill — green, amber, red.
 
-> "Every expectation is defined in SQL right next to the transformation. An auditor can read it. Bad data doesn't propagate."
-
----
-
-### Scene 3: DLT Pipeline (1 min)
-
-**Open the S.05.01 DLT pipeline** (link from Quick Links above, or from the workspace)
-
-> "Here's the pipeline graph. Three data streams — premiums, claims, expenses — flow through silver aggregation, merge into the EIOPA template, then produce the summary ratios."
-
-**Click a node** (e.g., `2_stg_premiums_by_lob`) → show:
-- The SQL transformation
-- `CONSTRAINT gross_written_positive EXPECT (gross_written_premium > 0) ON VIOLATION DROP ROW`
-
-> "The DQ rules are embedded in the pipeline. If a premium is negative, it's dropped before reaching the QRT."
+> **[15-MIN CUT]** Skip the colour explanation; just say "three pillars" and click into Monitor.
 
 ---
 
-### Scene 4: QRT Reports (2 min)
+## Scene 1 — Control Tower (4:00, 1:30 → 5:30)
 
-**Back in the app** → **Reports** → click **S.25.01 — SCR Standard Formula**
+> *(Click "Begin demo →" / Monitor.)*
 
-**Content tab**: SCR waterfall — market risk, default, non-life, BSCR, op risk, final SCR.
+This is the Control Tower. Same data layer, but framed as **what does Maria need to know in 60 seconds?**
+Six attention items at the top — these are real, computed live.
 
-**EIOPA Template tab**: Click it — shows the actual S.25.01 regulatory form with EIOPA row references (R0010-R0200). Click **Download PDF**.
+1. **Reinsurance feed late** — the broker bordereau arrived eight business days late. There is the timestamp.
+2. **47 quarantined claims** — flagged by the DLT expectation, all tagged `legacy_pre_migration`.
+3. **December storm** — 60% of property claims clustered on the 18th–31st, tagged `storm_dec_2025`.
+4. **Life lapse spike** — unit-linked book up 34% relative to Q3.
+5. **EUR 2.3M reconciliation gap** — a duplicate ISIN in the asset register.
+6. **Challenger model pending** — 2026 calibration sitting next to Champion at +4% SCR.
 
-> "This is exactly what BaFin will see."
+Six things to triage. Every other process this team uses — email, Excel, spreadsheets — is
+designed to delay you noticing these. This screen is designed to make you notice in 60 seconds.
 
-**Period Comparison tab**: Side-by-side Q1, Q2, Q3.
+> **Punchline:** *Same data. Different surface.*
 
-> "If the regulator asks 'why did SCR change?' — I show them this."
-
-**Reconciliation tab**: Cross-QRT checks — SCR vs own funds, asset counts.
-
-> "Consistency across all four QRTs, checked automatically."
-
----
-
-### Scene 5: Pipeline Lineage (1 min)
-
-**Still on S.25.01** → click **Lineage** tab
-
-> "The full audit trail. Every step from ingestion to export, with the actual SQL and DQ expectations."
-
-**Show:**
-- 4 phases: Ingestion → Transformation → Confirmation → Export
-- The **Model** step (step 3) shows: "Standard Formula Champion from Unity Catalog"
-- Click **Show SQL** on any step
-
-**Switch to S.05.01 → Lineage** to show the richer DAG:
-- 3 parallel ingestion streams (premiums, claims, expenses)
-- 3 parallel silver transformations
-- Merge into gold EIOPA template
+> **[15-MIN CUT]** Walk through 3 of the 6 (A, C, E). Skip D and F.
+> **Recovery:** if Q4 pains panel shows "0 firing", the data didn't load — switch to cached mode and continue.
 
 ---
 
-### Scene 6: Stochastic Modelling — S.26.06 (1.5 min)
+## Scene 2 — Drill into Pain B: the DQ break (5:30 → 7:00, 1:30)
 
-**Back to Reports** → click **S.26.06 — NL Underwriting Risk**
+> *(Click on Pain B card → Data Quality.)*
 
-> "This one is different. It has a stochastic modelling step."
+47 claims, all from a system source called `legacy_pre_migration`. Sister systems — `core_v3` —
+processed everything else fine. Look at the gross_paid column: every one of them is negative.
+A subrogation reversal pattern that the legacy system reports as a negative, the new core
+expects as a separate event.
 
-**Click Lineage tab** → show the unique pipeline:
-- **Preparation phase**: Exposures exported as CSV to a Unity Catalog Volume
-- **Stochastic phase**: "Stochastic engine — 10,000 Monte Carlo simulations, 7 perils"
-- Click **Show SQL** on the engine step — shows the export/import code
+> *(Open SQL panel.)*
 
-> "In production, that CSV goes to whatever stochastic engine you use — Igloo, Remetrica, RMS, Moody's, or your internal model. The results come back. Databricks orchestrates the handoff and imports the stochastic output."
+Same Unity Catalog table. Same DLT expectation that quarantined them — this is a row constraint:
+`gross_paid >= 0`. The 47 rows didn't make it into the gold layer. They're not in S.05.01. They're not in any QRT.
 
-**Content tab**: NL UW risk breakdown — premium risk, reserve risk, cat risk, diversification.
+> **Punchline:** *The DLT pipeline didn't ask for permission. It quarantined and continued.*
 
----
-
-### Scene 7: Model Governance (1 min)
-
-**On S.25.01** → click **Model Governance** tab
-
-> "Which version of the model did we use? The question every actuary dreads."
-
-**Show:**
-- **Champion** (v1, 2025 calibration): SCR = EUR 549M — this is production
-- **Challenger** (v2, 2026 calibration): SCR = EUR 560M — pending for next year
-- **Impact analysis**: +2% SCR driven by tighter correlations and higher op risk
-
-> "Both versions are in Unity Catalog with full audit trail. Promoting the Challenger is one alias change."
-
-**Open the Model Registry** (Quick Links) → show v1/v2, Champion alias
+> **[15-MIN CUT]** Skip — already established the principle in scene 1.
 
 ---
 
-### Scene 8: Approval + Certificate (1 min)
+## Scene 3 — Pillar 1: SCR breakdown (7:00 → 9:00, 2:00)
 
-**On S.25.01** → click **Approve / Export** tab
+> *(Click /scr — Pillar 1 chip.)*
 
-1. Click **Submit for Review**
-2. Add comment: *"Validated against actuarial function report. Property combined ratio spike explained by December fire claim."*
-3. Click **Approve & Export to Tagetik**
-4. Click **Generate Certificate**
+S.25.01 — the SCR template. The full standard formula breakdown. Five risk modules — market,
+default, life, health, non-life. They're correlated through the Annex IV correlation matrix.
+This is real actuarial maths. **The model that runs this is registered in Unity Catalog.**
 
-> "A PDF certificate with the approval timestamp, reviewer, and SHA-256 hash of the data. The CSV is exported to the regulatory volume. Ready for XBRL."
+> *(Open Model Governance.)*
 
----
+Champion v2025. Challenger v2026. The Challenger encodes: NL UW correlation +1.5%, op risk → 4%,
+life lapse stress ×1.15. Live calculation, ~+4% SCR.
 
-### Scene 9: Dashboard (30s)
+> *(Point at the side-by-side numbers.)*
 
-**Click Dashboard** in the nav → **Open Dashboard**
+Whoever decides whether Challenger gets promoted to Champion — that's a Pillar 2 governance decision —
+records it here. Buttons. Comments. Persisted.
 
-> "The CFO wants a single view. Four tabs: Overview with solvency ratio trend, then drill into each QRT."
+The point: **the actuarial calculation, the model registry, and the approval decision live in the same place.**
 
-Show the 5-tab Lakeview dashboard. Point out the Pipeline & DQ tab.
+> **Punchline:** *Pillar 1 + Pillar 2, not stitched together.*
 
----
-
-### Scene 10: Ask Genie (30s)
-
-**Click Ask Genie** → **Open Genie**
-
-Type: *"What is the solvency ratio for Q3 2025?"*
-
-> "Two weeks later, the CFO has a question. No SQL skills needed."
+> **[15-MIN CUT]** Skip the model-governance side — stay on the SCR breakdown.
 
 ---
 
-### Scene 11: AI Actuarial Review (1.5 min) — NEW
+## Scene 4 — Pillar 2: ORSA (9:00 → 13:00, 4:00) — KEYNOTE SCENE
 
-**On S.25.01** → **Approve / Export** tab → click **Generate AI Review**
+> *(Click /orsa.)*
 
-> "Now here's where it gets interesting. Maria used to spend 2-3 hours reviewing each QRT manually. Let's see what the AI agent produces in 15 seconds."
+ORSA — Own Risk and Solvency Assessment. Pillar 2. Forward-looking.
 
-**Show:**
-- Progress bar with timer
-- Structured review appears: Executive Summary, Key Metrics, Period Analysis, DQ Assessment, Risk Flags, Recommendation
-- **Expand the Guardrails banner** — show all checks passed
-- **Expand Agent Governance & Security Controls** — 12 controls across 7 layers
+Five pre-loaded scenarios. Pick the December storm — 1-in-200 nat cat. Run.
 
-> "The AI read the data, compared to last quarter, checked DQ, and wrote this review. Maria reads it in 5 minutes instead of writing it in 3 hours. But notice — the AI says 'Recommend Approve'. It cannot actually approve. Maria still clicks the button."
+> *(Click Run scenario. ~3 seconds.)*
 
----
+Same SCR engine that produced Pillar 1's number, now applying the scenario shock.
+Recomputed BSCR. Three years of projection using the business plan assumptions.
 
-### Scene 12: Stochastic Engine Review (1 min) — NEW
+> *(Point at the capital path chart.)*
 
-**Navigate to S.26.06** → click **Stochastic Engine** tab
+Solvency ratio under base. Solvency ratio under scenario. You can see exactly where it gets uncomfortable.
 
-> "S.26.06 has a stochastic modelling step. In production, exposure data goes out to whatever engine you use — Igloo, Remetrica, RMS, Moody's, internal model — and results come back."
+> *(Click Generate narrative.)*
 
-Click **Review Stochastic Engine Run**
+Foundation Model API. Reads the actual numbers from this run, drafts the Board commentary.
+Pillar 2 chip top-right of the result.
 
-> "The AI agent validates the full cycle: were the exposures complete? Are the VaR/TVaR results reasonable for this portfolio? Does the cat risk make sense relative to premium and reserve risk?"
+> *(Read first sentence of narrative aloud.)*
 
----
+Same numbers. Same data. Now in language a Board can read in five minutes.
 
-### Scene 13: DQ Triage Agent (1 min) — NEW
+> **Punchline:** *ORSA isn't a separate document anymore. It's a button.*
 
-**Click Data Quality** → click **Investigate DQ Issues**
-
-> "4 assets got quarantined for null IDs. In the old world, someone opens a ticket and waits. The AI agent investigates immediately."
-
-**Show the triage output:**
-- Root cause hypothesis ("likely custodian migration" or "feed timing issue")
-- Remediation steps with owners
-- Impact assessment: blocking vs non-blocking
-
-> "10 seconds instead of 2 hours of log analysis."
+> **[15-MIN CUT]** Skip narrative generation — just show the chart and move on. Saves ~90s.
+> **Recovery:** if the narrative call fails, sidebar toggle to Cached and click Generate again.
 
 ---
 
-### Scene 14: Cross-QRT Consistency (1 min) — NEW
+## Scene 5 — Pillar 3: SFCR with citations (13:00 → 16:30, 3:30)
 
-**Click Monitor** (Control Tower) → scroll down → click **Run Consistency Review**
+> *(Click /sfcr.)*
 
-> "Before we submit the package, do all 4 QRTs make sense together?"
+Pillar 3, public disclosure. Five sections. Click "Generate draft" on Section C — Risk Profile.
 
-**Show the AI output:**
-- Checks: assets vs market risk, GWP vs premium risk, NL UW SCR vs S.25.01
-- Actuarial reasonableness commentary
-- Verdict: consistent or issues found
+> *(Wait ~5 seconds. Output appears.)*
 
-> "A senior actuary does this mentally. The agent does it explicitly and documents it."
+Look at the inline chips. **Every quantitative claim is anchored to the gold table and cell it came from.**
+You can hover, you can click, an auditor can trace the path from the public report
+down to the raw data in seconds.
 
----
+> *(Click Preview to show citations rendered as chips.)*
 
-### Scene 15: Regulator Q&A (1 min) — NEW
+Same engine drafts every section. Same engine drafts the RSR — the supervisor-only twin —
+with two extra confidential sections.
 
-**Click Regulator Q&A** in the nav
+> **Punchline:** *Disclosure that an auditor can trust because they can verify it.*
 
-Type: *"Prepare a response to BaFin regarding the property combined ratio spike in Q4"*
-
-> "Two weeks after submission, BaFin has a question. Instead of pulling data, writing a letter, getting it reviewed — the agent drafts a response grounded in actual QRT data."
-
-**Show the response:** formal tone, specific numbers, QRT references, data-backed explanation.
-
-> "4-8 hours of work to 15 seconds. The compliance officer reviews and sends."
+> **[15-MIN CUT]** Skip the preview/click-through; just generate one section and read the first paragraph.
 
 ---
 
-### Scene 16: Security Framework (30s) — NEW
+## Scene 6 — Internal Controls + close (16:30 → 19:30, 3:00)
 
-**Open the `agentic_security_framework` notebook** (or show the Governance panel in the app)
+> *(Click /internal-controls.)*
 
-> "The question every CISO asks: 'How do we know the AI won't break anything?' Answer: 12 controls, 7 layers, defence in depth."
+12 AI guardrails. Layered. Each one points at the source code that implements it.
 
-**Quick highlights:**
-- AI cannot approve, submit, or modify data — architecturally impossible
-- Only reads summary tables — never raw policyholder records
-- Every call logged with full audit trail
-- Forbidden pattern detection blocks overreach
-- Human always decides
+> *(Point at the architectural assertions.)*
 
-> "This isn't AI replacing the actuary. It's AI doing the first 3 hours of work so the actuary can focus on the last 5 minutes of judgment."
+Three architectural invariants this platform enforces:
+1. AI cannot approve. The approval workflow requires a human X-Forwarded-User. AI agents have no path to approve.
+2. AI is read-only against regulatory tables. App service principal has SELECT on raw/staging/gold;
+   only `6_ai_*` tables (drafts, narratives, approvals) are writable.
+3. Every AI output is hashed. AFR + SFCR + ORSA narratives all carry SHA-256 content hashes.
 
----
+The audit trail is a Delta table. Every API call. Who, when, status, duration.
 
-### Closing
+> **Punchline:** *Pillar 2 governance isn't a policy document. It's the architecture.*
 
-> "What you just saw: from data arrival monitoring, through automated pipelines, stochastic modelling, quality gates, model governance, EIOPA template production, to approval and export — all on one platform.
->
-> And now, with 5 AI agents: the review that took 3 hours happens in 15 seconds. The regulator letter that took a day happens in a minute. The DQ investigation that took half a day happens immediately.
->
-> No Excel. No email chains. No 'which version did we use.' And the AI can never approve — the actuary always decides.
->
-> The actuary's day goes from chasing data to actually using their judgment."
+> **[15-MIN CUT]** Skip the audit log; show only the matrix + 3 invariants.
 
 ---
 
-## What's Under the Hood
+## Close (22:30 → 25:00, 2:30)
 
-### Architecture
+> *(Click back to Architecture page.)*
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Bronze (15 tables)        │ Generated by generate_data.py          │
-│ assets, premiums, claims, │ Synthetic but realistic P&C data       │
-│ expenses, risk_factors,   │ for Bricksurance SE                    │
-│ own_funds, exposures ...  │                                        │
-├───────────────────────────┼────────────────────────────────────────┤
-│ Silver (DLT)              │ Aggregation + validation               │
-│ 2_stg_assets_enriched,          │ DLT expectations = quality gates       │
-│ 2_stg_premiums_by_lob,          │ Bad data quarantined, not propagated   │
-│ 2_stg_cat_risk_by_lob ...       │                                        │
-├───────────────────────────┼────────────────────────────────────────┤
-│ Gold (DLT)                │ EIOPA template mapping                 │
-│ 3_qrt_s0602_list_of_assets,     │ Cell references (C0040, R0110 etc.)    │
-│ s0501_premiums_claims_... │ Directly maps to regulatory forms      │
-│ 3_qrt_s2501_scr_breakdown,      │                                        │
-│ 3_qrt_s2606_nl_uw_risk          │                                        │
-├───────────────────────────┼────────────────────────────────────────┤
-│ Summary (DLT)             │ Sign-off views for actuaries           │
-│ 3_qrt_s0602_summary,            │ Ratios, totals, reconciliation checks  │
-│ 3_qrt_s0501_summary,            │                                        │
-│ 3_qrt_s2501_summary,            │                                        │
-│ 3_qrt_s2606_summary             │                                        │
-├───────────────────────────┼────────────────────────────────────────┤
-│ Monitoring (4 tables)     │ 5_mon_pipeline_sla_status,                   │
-│                           │ 5_mon_dq_expectation_results,                │
-│                           │ 5_mon_cross_qrt_reconciliation,              │
-│                           │ 5_mon_model_registry_log                     │
-└───────────────────────────┴────────────────────────────────────────┘
-```
+Same engines. Same actuarial methods. New surface area.
 
-### QRT Pipelines
+You don't need to rebuild Prophet. You don't need to throw away Igloo. The **integration tax**
+is what gets removed when the data, the pipelines, the AI, and the disclosure all sit on
+the same governed substrate.
 
-| QRT | Pipeline | Steps | Unique Feature |
-|-----|----------|-------|----------------|
-| S.06.02 | 1_raw_assets → enriched → EIOPA template → summary | 5 | CIC decomposition |
-| S.05.01 | 3 parallel streams (premiums/claims/1_raw_expenses) → merge → EIOPA → ratios | 8 | Fan-in from 3 sources |
-| S.25.01 | 1_raw_risk_factors → MLflow model → EIOPA template → solvency ratio | 6 | Unity Catalog model |
-| S.26.06 | 1_raw_exposures → Igloo (Volume CSV) → cat risk + prem/res risk → EIOPA | 9 | Stochastic model handoff |
+For a mid-size composite — Bricksurance — this means the actuarial team spends Friday
+producing the regulatory submission instead of producing it on Wednesday and then
+spending Thursday and Friday explaining the differences between five copies of the same number.
 
-### App Pages
+This isn't a Databricks product. It's a working demonstration of what you can build on Databricks.
+The source is on GitHub. Deploy it to your own workspace, point it at your own data.
 
-| Page | URL Path | Purpose |
-|------|----------|---------|
-| Monitor | `/monitor` | Control Tower — feed SLA, DQ overview, reconciliation |
-| Reports | `/` | QRT list with status and key metrics |
-| Report Detail | `/report/{id}` | 8 tabs: Content, Quality, Comparison, Reconciliation, Template, Lineage, Model Governance*, Approval |
-| Data Quality | `/data-quality` | DQ expectations by pipeline, trend chart + **AI DQ Triage** |
-| Dashboard | `/dashboard` | Link to Lakeview (5 tabs) |
-| Regulator Q&A | `/regulator-qa` | **AI-powered** chat for regulator questions, board briefings |
-| Ask Genie | `/genie` | Link to Genie space (30 tables) |
-
-*Model Governance tab only appears on S.25.01
-
-### Key Files
-
-```
-deploy_demo.sh                    — One-click deploy (creates everything)
-src/00_Generate_Data/
-  generate_data.py                — Synthetic data (19 table types)
-  bootstrap_archive.py            — Runs Q1-Q3 generation
-  full_teardown.py                — Removes everything
-  teardown.py                     — Schema-only teardown
-src/01_QRT_S0602_Assets/          — 3 DLT SQL notebooks
-src/02_QRT_S0501_PnL/             — 5 DLT SQL notebooks
-src/03_QRT_S2501_SCR/             — Model + 2 DLT SQL notebooks
-src/04_QRT_S2606_NL_Risk/         — Igloo mock + 4 DLT SQL notebooks
-resources/qrt_s*.yml              — Pipeline + job definitions (DAB)
-src/app/                          — Databricks App (FastAPI + React)
-src/app/server/ai.py              — Foundation Model API wrapper (Sonnet → Llama fallback)
-src/app/server/guardrails.py      — 12 governance controls, 7 layers
-src/app/server/prompts.py         — Per-agent prompt templates
-src/app/server/routes/regulator.py — Regulator Q&A agent
-docs/agentic_security_framework.py — IT security notebook
-docs/demo_agent_walkthrough.py    — Technical demo notebook
-docs/demo_agent_eli5.py           — ELI5 demo notebook
-scripts/create_dashboard.py       — Lakeview dashboard generator
-scripts/add_descriptions.py       — Table/column descriptions
-databricks.yml                    — DAB bundle config
-```
+> **Closing line:** *Solvency II at the speed of lakehouse — same regulation, less tax.*
 
 ---
 
-## Troubleshooting
+## Recovery cheatsheet
 
-**App shows empty data / "?" for metrics:**
-The app's service principal needs `USE CATALOG`, `ALL PRIVILEGES ON SCHEMA`, and `CAN_USE` on the SQL warehouse. The deploy script grants these automatically, but if you recreated the app, re-run the grant commands.
+| If this fails… | Do this. |
+|---|---|
+| Q4 pains panel shows zero firing | Refresh; if still zero, fix data (re-run preflight). Don't read from the spec. |
+| ORSA "Run scenario" hangs | Sidebar toggle → Cached. Click Run again. |
+| ORSA narrative fails | Sidebar toggle → Cached. The bake is pre-populated. |
+| AFR / SFCR draft fails | Same — switch to Cached and re-click Generate. |
+| Whole app is down | Go to `docs/demo_fallbacks/index.html` (open the file or print-to-PDF beforehand). |
+| Slide doesn't render the architecture | Open `/architecture` in a second tab during opening; use it as the slide. |
 
-**Dashboard shows "select fields to visualize":**
-The dashboard was created but not published, or `queryLines` have issues. Re-run: `python3 scripts/create_dashboard.py <dashboard_id>`
+## Cuts at a glance
 
-**Genie says "no tables available":**
-Tables must be in `serialized_space.data_sources.tables[].identifier` (sorted alphabetically). The deploy script handles this. Max 30 tables per space.
-
-**S.26.06 pipeline fails:**
-The `run_igloo` task needs the `1_raw_exposures` and `4_eng_stochastic_results` tables to exist (created by `generate_data.py`). Run `bootstrap_archive.py` first.
-
-**Pipeline shows "NOTEBOOK_NOT_FOUND":**
-Run `databricks bundle deploy` to sync notebooks to the `.bundle` workspace path. Clear local sync state first: `rm -rf .databricks/bundle/dev/sync-snapshots .databricks/bundle/dev/fileset-snapshots`
+| Scene | 25-min | 15-min |
+|---|---|---|
+| Opening | 3:00 | 1:30 (skip detail of integration tax) |
+| Scene 1 — Control Tower | 1:30 | 1:00 (3 of 6 pains) |
+| Scene 2 — DQ break | 1:30 | SKIP |
+| Scene 3 — SCR + Model Gov | 2:00 | 1:00 (skip Model Gov) |
+| Scene 4 — ORSA | 4:00 | 3:00 (skip narrative) |
+| Scene 5 — SFCR | 3:30 | 2:00 (skip preview) |
+| Scene 6 — Internal Controls | 3:00 | 2:00 (skip audit) |
+| Close | 2:30 | 1:30 |
+| **Total** | **25:00** | **13:00** (room for 2 min of drift) |

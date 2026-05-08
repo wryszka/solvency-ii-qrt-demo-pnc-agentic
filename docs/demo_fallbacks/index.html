@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Solvency II at the Speed of Lakehouse — Demo Fallback</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --p1: #1e40af; --p1-soft: #dbeafe;
+    --p2: #15803d; --p2-soft: #dcfce7;
+    --p3: #b45309; --p3-soft: #fef3c7;
+    --cross: #475569;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica", system-ui, sans-serif;
+         color: #1f2937; background: #f8fafc; margin: 0; line-height: 1.55; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 48px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .subtitle { color: #64748b; margin: 0 0 24px; }
+  .alert { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+           padding: 14px 18px; color: #991b1b; margin: 0 0 24px; font-size: 14px; }
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 24px; }
+  .pillar { border: 2px solid; border-radius: 12px; padding: 14px 16px; }
+  .pillar.p1 { border-color: var(--p1); background: var(--p1-soft); color: var(--p1); }
+  .pillar.p2 { border-color: var(--p2); background: var(--p2-soft); color: var(--p2); }
+  .pillar.p3 { border-color: var(--p3); background: var(--p3-soft); color: var(--p3); }
+  .pillar h2 { font-size: 16px; margin: 0 0 4px; }
+  .pillar p { font-size: 12px; margin: 0; opacity: 0.85; }
+  .scene { background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+           padding: 16px 20px; margin: 0 0 12px; }
+  .scene h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .chip { display: inline-flex; padding: 2px 6px; border-radius: 4px; font-size: 10px;
+          font-weight: 700; border: 1px solid; text-transform: uppercase; letter-spacing: 0.05em; }
+  .chip.p1 { color: var(--p1); border-color: var(--p1); background: var(--p1-soft); }
+  .chip.p2 { color: var(--p2); border-color: var(--p2); background: var(--p2-soft); }
+  .chip.p3 { color: var(--p3); border-color: var(--p3); background: var(--p3-soft); }
+  .chip.cross { color: var(--cross); border-color: var(--cross); background: #f1f5f9; }
+  .scene .what { color: #475569; font-size: 13px; margin: 4px 0 8px; }
+  .scene pre { background: #0f172a; color: #d1d5db; padding: 10px 12px; border-radius: 6px;
+               font-size: 12px; overflow-x: auto; margin: 8px 0 4px; line-height: 1.4; }
+  .scene .result { background: #f1f5f9; border-left: 3px solid var(--cross); padding: 8px 12px;
+                   font-family: Menlo, monospace; font-size: 12px; margin-top: 6px; }
+  .scene .narrative { background: #fffbeb; border-left: 3px solid var(--p3); padding: 10px 14px;
+                      font-size: 13px; line-height: 1.55; margin-top: 8px; }
+  footer { margin-top: 32px; color: #64748b; font-size: 12px; text-align: center; }
+  code { background: #e2e8f0; padding: 0 4px; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Solvency II at the Speed of Lakehouse — fallback summary</h1>
+  <p class="subtitle">Bricksurance SE · Q4 2025 · static evidence pack for the forum talk
+  if the live app is unavailable.</p>
+
+  <div class="alert">
+    <strong>Use this page when the live app fails.</strong> Each scene below shows the SQL we'd
+    have run, the result we'd have shown, and the sentence we'd have said. Read it line by line —
+    it tells the same story as the live demo.
+  </div>
+
+  <div class="pillars">
+    <div class="pillar p1"><h2>Pillar 1 — Capital</h2>
+      <p>SCR · TPs (P&amp;C) · TPs (Life — S.12.01) · NL UW · Life UW · Asset register.</p></div>
+    <div class="pillar p2"><h2>Pillar 2 — Governance</h2>
+      <p>ORSA · Actuarial Function (Article 48) · Model Governance · Internal Controls.</p></div>
+    <div class="pillar p3"><h2>Pillar 3 — Disclosure</h2>
+      <p>QRT pack · SFCR · RSR · Regulator Q&amp;A.</p></div>
+  </div>
+
+  <div class="scene">
+    <h3><span class="chip cross">Cross</span> Scene 1 — Control Tower (six attention items)</h3>
+    <div class="what">What we'd have shown:</div>
+    <pre>SELECT pain_id, title, fired, severity, headline
+FROM /api/monitoring/q4-pains;</pre>
+    <div class="result">
+      A · RI feed late · t+11 (8 business days late vs SLA)<br>
+      B · 47 quarantined claims · system_source = legacy_pre_migration<br>
+      C · December storm · 2,266 claims tagged storm_dec_2025<br>
+      D · Life lapse spike · unit-linked Q4 1.94% vs Q3 1.45% (+34%)<br>
+      E · €2.3M reconciliation gap · duplicate ISIN bond in S.06.02<br>
+      F · Challenger model pending · +4% SCR vs Champion
+    </div>
+  </div>
+
+  <div class="scene">
+    <h3><span class="chip cross">Cross</span> Scene 2 — Pain B drill-in (DQ break)</h3>
+    <pre>SELECT system_source, COUNT(*) n, SUM(CASE WHEN gross_paid &lt; 0 THEN 1 ELSE 0 END) negative
+FROM lr_dev_aws_us_catalog.solvency2demo_v2.`1_raw_claims`
+WHERE reporting_period = '2025-Q4' GROUP BY system_source;</pre>
+    <div class="result">
+      core_v3 · 14,967 rows · 0 negative<br>
+      legacy_pre_migration · 47 rows · 47 negative
+    </div>
+  </div>
+
+  <div class="scene">
+    <h3><span class="chip p1">P1</span> Scene 3 — SCR breakdown + Champion vs Challenger</h3>
+    <pre>SELECT component, ROUND(amount_eur/1e6,1) AS eur_m
+FROM lr_dev_aws_us_catalog.solvency2demo_v2.`2_stg_scr_results`
+WHERE reporting_period = '2025-Q4'
+ORDER BY component;</pre>
+    <div class="result">
+      SCR_market · 280.4 M · BSCR · 824.6 M · SCR · 556.4 M (Champion v2025)<br>
+      Challenger v2026: SCR ≈ 578.7 M (+22.3 M / +4.0%)<br>
+      Drivers: NL UW correlation +1.5%, op risk → 4.0%, life lapse stress ×1.15
+    </div>
+  </div>
+
+  <div class="scene">
+    <h3><span class="chip p2">P2</span> Scene 4 — ORSA · 1-in-200 nat cat scenario</h3>
+    <pre>POST /api/orsa/run { "scenario_id": "natcat_1_in_200" }</pre>
+    <div class="result">
+      Year 0 base: SCR 556 M · solvency 178%<br>
+      Year 0 stress: SCR 712 M · solvency 139%<br>
+      Year 1: 184% / 132%   Year 2: 190% / 135%   Year 3: 196% / 138%
+    </div>
+    <div class="narrative">
+      <strong>ORSA narrative (excerpt — Pillar 2 → SFCR Risk Profile):</strong>
+      Under the 1-in-200 catastrophe scenario the Group's solvency ratio reduces from
+      178% to 139% in the immediate aftermath, recovering to 138% by year 3 as premium
+      growth and underwriting earnings rebuild own funds. The non-life catastrophe charge
+      (S.26.06 R0040) drives the stress, with a smaller second-order increase in
+      reserve risk. The Group remains well above the regulatory threshold but the
+      scenario is material and warrants increased catastrophe retrocession capacity
+      heading into 2026.
+    </div>
+  </div>
+
+  <div class="scene">
+    <h3><span class="chip p3">P3</span> Scene 5 — SFCR Section C (Risk Profile) with citations</h3>
+    <div class="narrative">
+      <strong>Risk Profile — first paragraph (auditor-traceable):</strong>
+      The Group's overall risk profile is dominated by non-life underwriting risk and
+      market risk. As at the reporting date the Solvency Capital Requirement is
+      <em>EUR 556 M</em>
+      <span style="display:inline-flex;padding:0 6px;border-radius:3px;background:#fef3c7;color:#b45309;font-size:11px;font-family:Menlo,monospace;">3_qrt_s2501_summary · scr_eur</span>,
+      with a coverage ratio of
+      <em>178%</em>
+      <span style="display:inline-flex;padding:0 6px;border-radius:3px;background:#fef3c7;color:#b45309;font-size:11px;font-family:Menlo,monospace;">3_qrt_s2501_summary · solvency_ratio_pct</span>.
+      Non-life underwriting risk contributes
+      <em>EUR 217 M</em>
+      <span style="display:inline-flex;padding:0 6px;border-radius:3px;background:#fef3c7;color:#b45309;font-size:11px;font-family:Menlo,monospace;">3_qrt_s2606_summary · total_nl_uw_scr</span>,
+      of which catastrophe risk represents 41%.
+    </div>
+  </div>
+
+  <div class="scene">
+    <h3><span class="chip p2">P2</span> Scene 6 — Internal Controls (12-control matrix)</h3>
+    <div class="result">
+      Layers: Input · Identity · Output · Persistence · Architecture · Catalog<br>
+      12 controls live · 0 forbidden-pattern blocks · 0 PII flags · 0 rate-limited<br>
+      Architectural invariants:
+      <ol style="margin:6px 0 0 18px;">
+        <li>AI cannot approve a QRT.</li>
+        <li>AI is read-only against regulatory tables.</li>
+        <li>Every AI output is SHA-256-hashed and audit-logged.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="scene">
+    <h3>Close</h3>
+    <p style="font-size:14px;">Same Prophet. Same Igloo. New surface area. The integration tax is what gets removed.
+    <br><strong style="font-size:16px;">Solvency II at the speed of lakehouse — same regulation, less tax.</strong></p>
+  </div>
+
+  <footer>
+    Static fallback — generated for the forum talk. Live app:
+    <code>solvency2-qrt-ai-dev</code> · DEV workspace ·
+    <code>lr_dev_aws_us_catalog.solvency2demo_v2</code> · Q4 2025.
+  </footer>
+</div>
+</body>
+</html>
