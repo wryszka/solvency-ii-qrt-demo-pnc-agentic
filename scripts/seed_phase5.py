@@ -133,6 +133,14 @@ DDL = [
         last_quantitative_refresh TIMESTAMP, last_narrative_review TIMESTAMP,
         order_index INT, generated_by STRING
     """),
+    ("gold_submissions_archive", """
+        period STRING, qrt STRING, qrt_title STRING, doc_type STRING,
+        status STRING, submitted_at TIMESTAMP, submitted_by STRING,
+        reviewed_by STRING, reviewed_at TIMESTAMP,
+        cycle_days INT, dq_pass_rate DOUBLE, feeds_complete STRING,
+        headline_metric STRING, headline_value STRING, narrative STRING,
+        audit_snapshot_id STRING
+    """),
 ]
 
 
@@ -502,6 +510,134 @@ Reviewed at the **18 November 2025** governance committee."""),
     )
 
 
+def seed_submissions_archive() -> None:
+    """33 rows. 4 quarterly closes × 5 QRTs + 2025-YE annual pack (5 QRTs + SFCR + RSR + ORSA)
+    + 2026-Q2 in-progress (5 QRTs). Submitter = Laurence Ryszka. Reviewer alternates between
+    Sarah Chen and Michael Brandt. Cycle / DQ / feeds per spec."""
+    QUARTERLY_QRTS = [
+        ("S.05.01", "Premiums, Claims & Expenses",  "qrt"),
+        ("S.06.02", "Asset Register",                "qrt"),
+        ("S.12.01", "Life Technical Provisions",      "qrt"),
+        ("S.25.01", "SCR — Standard Formula",         "qrt"),
+        ("S.26.06", "Non-Life Underwriting Risk",     "qrt"),
+    ]
+    ANNUAL_DOCS = [
+        ("SFCR",   "Solvency and Financial Condition Report", "sfcr"),
+        ("RSR",    "Regular Supervisory Report",               "rsr"),
+        ("ORSA",   "Own Risk and Solvency Assessment",         "orsa"),
+    ]
+
+    REVIEWERS = ["Sarah Chen", "Michael Brandt"]
+    SUBMITTER = "Laurence Ryszka"
+
+    # Per-period config: cycle_days, dq, feeds, submission day-after-quarter-end, headline metric+value, narrative tone
+    QUARTERLY = [
+        # (period, period_end_date, cycle_days, dq, feeds, narrative_quirk)
+        ("2025-Q1", datetime(2025, 4, 1),  13, 99.1, "7/8", "One feed late (custodian Northern Trust) — resolved before submission. Otherwise standard close."),
+        ("2025-Q2", datetime(2025, 7, 1),  11, 99.6, "8/8", "Clean cycle. Fastest of H1. No data-quality flags."),
+        ("2025-Q3", datetime(2025, 10, 1), 12, 98.7, "8/8", "Minor data issue mid-cycle in motor claim notification batch — re-validated and cleared."),
+    ]
+    ANNUAL_2025_YE = ("2025-YE", datetime(2026, 1, 6),  16, 99.4, "8/8",
+                     "Full annual pack including SFCR (Article 51 public disclosure), RSR (supervisor) and ORSA (board). "
+                     "Longest cycle of the year as expected; ORSA stress-test refresh added two extra working days.")
+    Q1_2026 = ("2026-Q1", datetime(2026, 4, 1), 10, 99.8, "8/8", "Fastest close to date. Two days under target. Clean DQ.")
+    Q2_2026_INPROGRESS = ("2026-Q2", datetime(2026, 7, 1), None, 99.2, "7/8",
+                          "In progress. ABN AMRO custodian feed running 2d15h late (Janusz Kowalski following up). "
+                          "All other feeds received on schedule.")
+
+    HEADLINE_BY_QRT = {
+        "S.05.01": ("GWP",          ["EUR 1.92 B", "EUR 1.95 B", "EUR 1.99 B", "EUR 2.00 B", "EUR 0.51 B"]),
+        "S.06.02": ("Asset value",  ["EUR 6.20 B", "EUR 6.28 B", "EUR 6.34 B", "EUR 6.42 B", "EUR 6.45 B"]),
+        "S.12.01": ("Life BE",       ["EUR 1.91 B", "EUR 1.94 B", "EUR 1.97 B", "EUR 2.00 B", "EUR 2.02 B"]),
+        "S.25.01": ("Solvency",     ["318%", "324%", "329%", "333%", "208%"]),
+        "S.26.06": ("NL UW SCR",    ["EUR 506 M", "EUR 511 M", "EUR 519 M", "EUR 524 M", "EUR 525 M"]),
+    }
+    # Index 0=Q1 1=Q2 2=Q3 3=YE  4=2026-Q1  (the in-progress 2026-Q2 has no submitted headline; reuses 0 for empty)
+
+    rows: list[tuple] = []
+
+    def submitted_dt(period_end: datetime, cycle_days: int) -> datetime:
+        return (period_end + timedelta(days=cycle_days)).replace(hour=15, minute=30, tzinfo=timezone.utc)
+
+    def reviewed_dt(submitted: datetime, hours: int = 6) -> datetime:
+        return submitted + timedelta(hours=hours)
+
+    # Quarterly Q1, Q2, Q3 2025
+    for idx, (period, p_end, cycle, dq, feeds, narr) in enumerate(QUARTERLY):
+        sub = submitted_dt(p_end, cycle)
+        rev = reviewed_dt(sub)
+        for q_idx, (qrt, title, doc_type) in enumerate(QUARTERLY_QRTS):
+            reviewer = REVIEWERS[(q_idx + idx) % 2]
+            metric_label, metric_values = HEADLINE_BY_QRT[qrt]
+            value = metric_values[idx]
+            rows.append((
+                period, qrt, title, doc_type,
+                "submitted", sub, SUBMITTER, reviewer, rev,
+                cycle, dq, feeds,
+                metric_label, value,
+                narr, f"snap-{period}-{qrt.replace('.', '')}",
+            ))
+
+    # 2025-YE annual pack — 5 QRTs + SFCR + RSR + ORSA
+    p, p_end, cycle, dq, feeds, narr = ANNUAL_2025_YE
+    sub = submitted_dt(p_end, cycle)
+    rev = reviewed_dt(sub, hours=18)
+    for q_idx, (qrt, title, doc_type) in enumerate(QUARTERLY_QRTS):
+        reviewer = REVIEWERS[(q_idx + 3) % 2]
+        metric_label, metric_values = HEADLINE_BY_QRT[qrt]
+        rows.append((
+            p, qrt, title, doc_type,
+            "submitted", sub, SUBMITTER, reviewer, rev,
+            cycle, dq, feeds,
+            metric_label, metric_values[3],
+            narr, f"snap-{p}-{qrt.replace('.', '')}",
+        ))
+    for d_idx, (label, title, doc_type) in enumerate(ANNUAL_DOCS):
+        reviewer = REVIEWERS[d_idx % 2]
+        rows.append((
+            p, label, title, doc_type,
+            "submitted", sub, SUBMITTER, reviewer, rev,
+            cycle, dq, feeds,
+            "Status", "Approved + signed",
+            narr, f"snap-{p}-{label}",
+        ))
+
+    # 2026-Q1 (recently submitted)
+    p, p_end, cycle, dq, feeds, narr = Q1_2026
+    sub = submitted_dt(p_end, cycle)
+    rev = reviewed_dt(sub)
+    for q_idx, (qrt, title, doc_type) in enumerate(QUARTERLY_QRTS):
+        reviewer = REVIEWERS[(q_idx + 4) % 2]
+        metric_label, metric_values = HEADLINE_BY_QRT[qrt]
+        rows.append((
+            p, qrt, title, doc_type,
+            "submitted", sub, SUBMITTER, reviewer, rev,
+            cycle, dq, feeds,
+            metric_label, metric_values[4],
+            narr, f"snap-{p}-{qrt.replace('.', '')}",
+        ))
+
+    # 2026-Q2 in progress
+    p, p_end, _, dq, feeds, narr = Q2_2026_INPROGRESS
+    for q_idx, (qrt, title, doc_type) in enumerate(QUARTERLY_QRTS):
+        rows.append((
+            p, qrt, title, doc_type,
+            "in_progress", None, SUBMITTER, None, None,
+            None, dq, feeds,
+            "Status", "Drafting",
+            narr, f"snap-{p}-{qrt.replace('.', '')}",
+        ))
+
+    insert_rows(
+        "gold_submissions_archive",
+        ["period", "qrt", "qrt_title", "doc_type", "status",
+         "submitted_at", "submitted_by", "reviewed_by", "reviewed_at",
+         "cycle_days", "dq_pass_rate", "feeds_complete",
+         "headline_metric", "headline_value", "narrative", "audit_snapshot_id"],
+        rows,
+    )
+
+
 def main() -> None:
     print(f"Phase 5 narrative seed in {CATALOG}.{SCHEMA}")
     ensure_tables()
@@ -516,6 +652,7 @@ def main() -> None:
     seed_orsa_history()
     seed_sf_challenger()
     seed_orsa_draft()
+    seed_submissions_archive()
     print("\nPhase 5 seed complete.")
 
 

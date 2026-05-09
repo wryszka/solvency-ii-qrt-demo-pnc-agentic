@@ -405,6 +405,125 @@ End with a constructive recommendation."""
 
 # ── Scene 7 — Continuous ORSA history + on-the-fly stress ────────────────
 
+@router.get("/archive/submissions")
+async def archive_submissions():
+    """All submissions archive rows. Sorted: in-progress first, then most-recent submitted."""
+    rows = await execute_query(
+        f"SELECT * FROM {fqn('gold_submissions_archive')} "
+        f"ORDER BY (status = 'in_progress') DESC, submitted_at DESC NULLS LAST, qrt"
+    )
+    return {"submissions": rows}
+
+
+@router.get("/archive/pdf/{period}/{qrt}")
+async def archive_pdf(period: str, qrt: str):
+    """Generate a simple PDF on demand for the given (period, qrt) row."""
+    from fastapi.responses import Response
+    rows = await execute_query(
+        f"SELECT * FROM {fqn('gold_submissions_archive')} "
+        f"WHERE period = :p AND qrt = :q LIMIT 1",
+        parameters=[
+            StatementParameterListItem(name="p", value=period),
+            StatementParameterListItem(name="q", value=qrt),
+        ],
+    )
+    if not rows:
+        raise HTTPException(404, f"submission {period}/{qrt} not found")
+    sub = rows[0]
+
+    # Build PDF with fpdf2 (already in requirements)
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        raise HTTPException(500, "fpdf2 not installed")
+
+    pdf = FPDF(unit="mm", format="A4")
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Header band
+    pdf.set_fill_color(30, 64, 175)
+    pdf.rect(0, 0, 210, 30, "F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_xy(15, 8)
+    pdf.cell(180, 5, "BRICKSURANCE SE  ·  COMPOSITE INSURANCE  ·  SOLVENCY II")
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_xy(15, 14)
+    pdf.cell(180, 9, sub["qrt_title"] or sub["qrt"])
+
+    # Body
+    pdf.set_text_color(30, 30, 30)
+    pdf.set_xy(15, 40)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(180, 6, f"{sub['qrt']} · {sub['period']}")
+    pdf.ln(8)
+
+    pdf.set_font("Helvetica", "", 10)
+    def kv(label: str, value: str) -> None:
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(110, 110, 110)
+        pdf.cell(40, 5, label)
+        pdf.set_text_color(30, 30, 30)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 5, str(value))
+        pdf.ln(6)
+
+    kv("Entity",        "Bricksurance SE")
+    kv("LEI",           "5493001KJTIIGC8Y1R12")
+    kv("Reporting period", sub["period"])
+    kv("Status",        (sub.get("status") or "").replace("_", " ").upper())
+    kv("Submitted",     str(sub.get("submitted_at") or "—"))
+    kv("Submitted by",  sub.get("submitted_by") or "—")
+    kv("Reviewed by",   sub.get("reviewed_by") or "—")
+    kv("Reviewed at",   str(sub.get("reviewed_at") or "—"))
+    kv("Cycle (days)",  str(sub.get("cycle_days") or "—"))
+    kv("DQ pass rate",  f"{sub.get('dq_pass_rate', '—')}%")
+    kv("Feeds complete", sub.get("feeds_complete") or "—")
+
+    # Headline metric box
+    pdf.ln(3)
+    pdf.set_draw_color(30, 64, 175)
+    pdf.set_fill_color(241, 245, 249)
+    pdf.rect(15, pdf.get_y(), 180, 22, "DF")
+    pdf.set_xy(20, pdf.get_y() + 4)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(110, 110, 110)
+    pdf.cell(0, 5, sub.get("headline_metric") or "Headline")
+    pdf.set_xy(20, pdf.get_y() + 5)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(30, 64, 175)
+    pdf.cell(0, 9, sub.get("headline_value") or "—")
+    pdf.ln(15)
+
+    # Narrative
+    if sub.get("narrative"):
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(110, 110, 110)
+        pdf.cell(0, 5, "NOTES")
+        pdf.ln(6)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(30, 30, 30)
+        pdf.multi_cell(180, 5, sub["narrative"])
+        pdf.ln(3)
+
+    # Footer
+    pdf.set_y(-25)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(140, 140, 140)
+    pdf.cell(0, 4, "Generated on demand from canonical Unity Catalog tables. Reflects current state for the chosen period.")
+    pdf.ln(4)
+    pdf.cell(0, 4, f"Audit snapshot: {sub.get('audit_snapshot_id') or '—'}")
+
+    pdf_bytes = bytes(pdf.output())
+    filename = f"{period}_{qrt}_Bricksurance.pdf".replace(" ", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @router.get("/orsa/draft")
 async def orsa_draft():
     """Latest version of the continuous ORSA draft, all sections."""

@@ -1036,6 +1036,31 @@ export interface OrsaDraftSection {
 export async function fetchOrsaDraft(): Promise<{ version: number | null; sections: OrsaDraftSection[] }> {
   return fetchJson('/api/demo/orsa/draft');
 }
+
+export interface ArchiveSubmission {
+  period: string;
+  qrt: string;
+  qrt_title: string;
+  doc_type: 'qrt' | 'sfcr' | 'rsr' | 'orsa';
+  status: 'submitted' | 'in_progress';
+  submitted_at: string | null;
+  submitted_by: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  cycle_days: number | string | null;
+  dq_pass_rate: number | string;
+  feeds_complete: string;
+  headline_metric: string;
+  headline_value: string;
+  narrative: string;
+  audit_snapshot_id: string;
+}
+export async function fetchArchiveSubmissions(): Promise<{ submissions: ArchiveSubmission[] }> {
+  return fetchJson('/api/demo/archive/submissions');
+}
+export function archivePdfUrl(period: string, qrt: string): string {
+  return `/api/demo/archive/pdf/${encodeURIComponent(period)}/${encodeURIComponent(qrt)}`;
+}
 export async function runOrsaStress(scenario_label: string, duration_years = 5): Promise<Row> {
   return postJson('/api/demo/orsa/run-stress', { scenario_label, duration_years });
 }
