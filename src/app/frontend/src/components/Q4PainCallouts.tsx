@@ -61,20 +61,15 @@ export default function Q4PainCallouts() {
                 crumbs: [
                   { label: 'Today', to: '/today' },
                   { label: 'Control Tower', to: '/monitor' },
-                  { label: `Pain ${pain.id} — ${pain.title}` },
+                  { label: pain.title },
                 ],
               }})}
               className={`text-left flex items-start gap-3 p-3 rounded-md border transition-shadow hover:shadow-sm ${v.cardCls}`}
             >
               <v.Icon className={`w-4 h-4 mt-0.5 shrink-0 ${v.iconCls}`} />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 bg-white/60 rounded border border-current/20 text-gray-700">
-                    Pain {pain.id}
-                  </span>
-                  <span className="text-sm font-semibold text-gray-900 truncate">{pain.title}</span>
-                </div>
-                <div className="text-xs text-gray-700 mt-1">{pain.headline}</div>
+                <span className="text-sm font-semibold text-gray-900 truncate block">{pain.title}</span>
+                <div className="text-xs text-gray-700 mt-0.5">{pain.headline}</div>
               </div>
               <ArrowRight className="w-3.5 h-3.5 text-gray-400 mt-1 shrink-0" />
             </button>
