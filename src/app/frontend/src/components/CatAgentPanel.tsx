@@ -5,7 +5,7 @@
  * shows the underlying event log + storm-claim numbers as evidence cards
  * alongside.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sparkles, Loader2, AlertTriangle, Wind, RefreshCw } from 'lucide-react';
 import { renderMarkdownSafe } from '../lib/markdown';
 import { useStreamedText } from '../lib/hooks/useStreamedText';
@@ -106,8 +106,11 @@ export default function CatAgentPanel() {
 
 function Stage({ label, delay }: { label: string; delay: number }) {
   const [stage, setStage] = useState<'pending' | 'active' | 'done'>('pending');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useStageTimer(setStage, delay);
+  useEffect(() => {
+    const a = window.setTimeout(() => setStage('active'), delay);
+    const b = window.setTimeout(() => setStage('done'),   delay + 800);
+    return () => { window.clearTimeout(a); window.clearTimeout(b); };
+  }, [delay]);
   return (
     <div className="flex items-center gap-2">
       {stage === 'pending' && <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-200" />}
@@ -124,15 +127,6 @@ function Stage({ label, delay }: { label: string; delay: number }) {
       </span>
     </div>
   );
-}
-
-function useStageTimer(setStage: (s: 'pending' | 'active' | 'done') => void, delay: number) {
-  // tiny inline hook used by Stage
-  const [, force] = useState(0);
-  if (delay >= 0) {
-    setTimeout(() => { setStage('active'); force((x) => x + 1); }, delay);
-    setTimeout(() => { setStage('done');   force((x) => x + 1); }, delay + 800);
-  }
 }
 
 function EvidenceCard({ title, rows }: { title: string; rows: { label: string; meta: string; detail: string }[] }) {
