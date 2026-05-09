@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import { Plus, Loader2, XCircle, Sparkles } from 'lucide-react';
-import { createOverlay, type OverlayCreate } from '../lib/api';
+import { createOverlay, asArray, type OverlayCreate } from '../lib/api';
 
 const QUARTERS = ['2025-Q1', '2025-Q2', '2025-Q3', '2025-Q4', '2026-Q1'];
 const CATEGORIES = ['one_off_event', 'methodology_judgement', 'data_correction', 'tail_extension', 'expert_judgement_other'];
@@ -35,7 +35,7 @@ export default function CreateOverlayModal({ initial, fromAgentSuggestion, onClo
   const [direction, setDirection] = useState<'increase' | 'decrease'>(initial?.direction ?? 'increase');
   const [category, setCategory] = useState(initial?.category ?? 'one_off_event');
   const [rationale, setRationale] = useState(initial?.rationale ?? '');
-  const [linkedCellsRaw, setLinkedCellsRaw] = useState((initial?.linked_qrt_cells ?? []).join('\n'));
+  const [linkedCellsRaw, setLinkedCellsRaw] = useState(asArray<string>(initial?.linked_qrt_cells).join('\n'));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 

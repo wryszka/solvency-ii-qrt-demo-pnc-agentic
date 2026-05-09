@@ -39,6 +39,29 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
   return res.json();
 }
 
+/**
+ * Coerce a possibly-stringified ARRAY field into a real string array.
+ *
+ * The Databricks SQL Statement Execution API serialises ARRAY<STRING> columns
+ * as JSON-encoded strings (e.g. `"[\"S.06.02\"]"`). Calling `.join()` on that
+ * string throws TypeError; calling `.map()` iterates characters. This helper
+ * unwraps both — pass-through if already an array, JSON.parse if a string,
+ * empty array otherwise.
+ */
+export function asArray<T = string>(v: unknown): T[] {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v as T[];
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function formatEur(value: number | string | null | undefined): string {
   if (value == null || value === '') return '\u2014';
   const num = typeof value === 'string' ? parseFloat(value) : value;

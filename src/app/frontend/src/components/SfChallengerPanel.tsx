@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Loader2, Send, AlertTriangle, CheckCircle2, Mail, ArrowRight, UserCheck, Clock } from 'lucide-react';
-import { fetchSfChallenger, escalateSfChallenger, promoteSfChallenger, type DemoSfChallenger } from '../lib/api';
+import { fetchSfChallenger, escalateSfChallenger, promoteSfChallenger, asArray, type DemoSfChallenger } from '../lib/api';
 
 export default function SfChallengerPanel() {
   const [c, setC] = useState<DemoSfChallenger | null>(null);
@@ -78,7 +78,7 @@ export default function SfChallengerPanel() {
         <div>
           <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1">Methodology changes</div>
           <ul className="space-y-1">
-            {(c.methodology_changes ?? []).map((m, i) => (
+            {asArray<string>(c.methodology_changes).map((m, i) => (
               <li key={i} className="text-xs text-gray-700">· {m}</li>
             ))}
           </ul>

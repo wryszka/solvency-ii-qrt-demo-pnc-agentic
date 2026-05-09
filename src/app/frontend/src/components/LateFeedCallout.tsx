@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { AlertTriangle, X, Mail, MessageCircle, Clock, ChevronRight } from 'lucide-react';
-import { fetchDemoFeeds, type DemoFeed } from '../lib/api';
+import { fetchDemoFeeds, asArray, type DemoFeed } from '../lib/api';
 
 export default function LateFeedCallout() {
   const [feeds, setFeeds] = useState<DemoFeed[]>([]);
@@ -40,7 +40,7 @@ export default function LateFeedCallout() {
               <p className="text-xs text-gray-700 mt-1">
                 Owner contact: <span className="font-semibold">{f.owner_contact_name}</span> ({f.owner_contact_role}).
                 ETA <span className="font-mono">{niceTime(f.eta_at)}</span>.
-                Blocks: <span className="font-mono text-amber-900">{(f.blocks_qrts ?? []).join(', ')}</span>.
+                Blocks: <span className="font-mono text-amber-900">{asArray<string>(f.blocks_qrts).join(', ')}</span>.
               </p>
             </div>
             <ChevronRight className="w-4 h-4 text-amber-700 mt-1 group-hover:translate-x-1 transition-transform shrink-0" />
@@ -112,8 +112,8 @@ function FeedDrawer({ feed, onClose }: { feed: DemoFeed; onClose: () => void }) 
 
           <section className="bg-white border border-gray-200 rounded-lg p-4">
             <h4 className="text-xs uppercase tracking-wider font-bold text-gray-700 mb-2">Downstream cascade</h4>
-            <Cascade label="Blocks QRTs"   items={feed.blocks_qrts ?? []} variant="block" />
-            <Cascade label="Stale models"  items={feed.stale_models ?? []} variant="stale" />
+            <Cascade label="Blocks QRTs"   items={asArray<string>(feed.blocks_qrts)} variant="block" />
+            <Cascade label="Stale models"  items={asArray<string>(feed.stale_models)} variant="stale" />
           </section>
 
           {feed.notes && (

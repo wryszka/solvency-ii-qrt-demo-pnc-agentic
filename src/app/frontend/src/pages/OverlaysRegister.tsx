@@ -20,7 +20,7 @@ import { Layers, Loader2, AlertTriangle, Plus, CheckCircle2, Clock, XCircle, Arr
 import PillarChip from '../components/PillarChip';
 import {
   fetchOverlays, fetchOverlaySummary, approveOverlay, retireOverlay, createOverlay,
-  formatEur,
+  formatEur, asArray,
   type Overlay, type OverlaySummary, type OverlayCreate,
 } from '../lib/api';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -336,13 +336,16 @@ function OverlayDetailDrawer({ overlay, onClose, onChanged }: {
           <div>
             <div className="text-[11px] uppercase tracking-wide text-gray-500 font-semibold mb-1">Linked QRT cells</div>
             <div className="flex flex-wrap gap-1.5">
-              {(overlay.linked_qrt_cells ?? []).map((c, i) => (
-                <code key={i} className="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 rounded px-1.5 py-0.5">
-                  {c}
-                </code>
-              ))}
-              {(!overlay.linked_qrt_cells || overlay.linked_qrt_cells.length === 0) &&
-                <span className="text-xs text-gray-500">none</span>}
+              {(() => {
+                const cells = asArray<string>(overlay.linked_qrt_cells);
+                return cells.length === 0
+                  ? <span className="text-xs text-gray-500">none</span>
+                  : cells.map((c, i) => (
+                      <code key={i} className="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 rounded px-1.5 py-0.5">
+                        {c}
+                      </code>
+                    ));
+              })()}
             </div>
           </div>
           <Field label="Author"      value={overlay.author} mono small />
