@@ -193,20 +193,17 @@ async def embeds():
 async def backstage_url(request: Request):
     """Return a deep link to the technical-deep-dive notebook in the workspace.
 
-    BACKSTAGE_NOTEBOOK_PATH (env) overrides the default; the default assumes
-    the bundle synced source under the calling user's home folder.
+    Path is sourced from BACKSTAGE_NOTEBOOK_PATH (set by the bundle's
+    backstage_notebook_path variable in databricks.yml). When unset, the
+    sidebar Backstage icon stays hidden — the frontend treats an empty URL
+    as "no link", so this function returns no URL when the path is missing.
     """
     import os
-    host = get_workspace_host()
     nb_path = os.getenv("BACKSTAGE_NOTEBOOK_PATH", "").strip()
-    if nb_path:
-        return {"url": f"{host}#notebook{nb_path}"}
-    try:
-        user = get_request_user(request)
-        nb_path = f"/Workspace/Users/{user}/06_backstage_technical"
-        return {"url": f"{host}#notebook{nb_path}"}
-    except Exception:
-        return {"url": f"{host}#workspace"}
+    if not nb_path:
+        return {"url": ""}
+    host = get_workspace_host()
+    return {"url": f"{host}#notebook{nb_path}"}
 
 
 if FRONTEND_DIR.is_dir():

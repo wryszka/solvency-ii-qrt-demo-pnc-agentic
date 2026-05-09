@@ -1,382 +1,195 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Deploy Solvency II QRT Demo
+# Deploy Actuarial Workbench (Solvency II demo) end-to-end.
 #
-# Uploads notebooks to a visible workspace folder and bootstraps archive data.
-# Run this once after cloning the repo.
+# Single-command flow. Idempotent — safe to re-run for healing.
 #
 # Usage:
-#   ./deploy_demo.sh                          # uses defaults
-#   ./deploy_demo.sh --catalog my_catalog     # override catalog
-#   ./deploy_demo.sh --profile STAGING        # use a different CLI profile
+#   bash deploy_demo.sh                                   # uses dev_v2 target defaults
+#   bash deploy_demo.sh --target prod                     # different target
+#   bash deploy_demo.sh --catalog X --schema Y \
+#                        --warehouse Z --profile P        # override per-flag
 #
-# Prerequisites:
-#   - Databricks CLI v0.200+ authenticated
-#   - Access to create catalogs/schemas or an existing catalog
+# What it does, in order:
+#   1. Validate prerequisites (CLI, profile, FM endpoint)
+#   2. databricks bundle deploy — uploads notebooks, creates volumes, app, jobs
+#   3. databricks bundle run governance_setup — registers MLflow models + seeds gov tables
+#   4. Deploy Lakeview dashboard (idempotent)
+#   5. Deploy Genie space (idempotent via scripts/deploy_genie_space.py)
+#   6. Re-deploy bundle with dashboard_id + genie_space_id as bundle vars
+#   7. Apply remaining grants to app service principal
+#   8. Print URLs
 # ============================================================================
 
 set -euo pipefail
 
-# Defaults
-PROFILE="${DATABRICKS_PROFILE:-DEFAULT}"
+# ── Args ──
+TARGET="${BUNDLE_TARGET:-dev_v2}"
 CATALOG=""
-SCHEMA="solvency2demo_agentic"
-WORKSPACE_DIR=""
-YEAR="2025"
-ENTITY="Bricksurance SE"
-WAREHOUSE_ID="ab79eced8207d29b"
+SCHEMA=""
+WAREHOUSE=""
+PROFILE=""
 
-# Parse arguments
 while [[ $# -gt 0 ]]; do
-    case $1 in
-        --profile)  PROFILE="$2"; shift 2 ;;
-        --catalog)  CATALOG="$2"; shift 2 ;;
-        --schema)   SCHEMA="$2"; shift 2 ;;
-        --folder)   WORKSPACE_DIR="$2"; shift 2 ;;
-        --year)     YEAR="$2"; shift 2 ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+    case "$1" in
+        --target)    TARGET="$2"; shift 2;;
+        --catalog)   CATALOG="$2"; shift 2;;
+        --schema)    SCHEMA="$2"; shift 2;;
+        --warehouse) WAREHOUSE="$2"; shift 2;;
+        --profile)   PROFILE="$2"; shift 2;;
+        -h|--help)
+            grep '^#' "$0" | head -25; exit 0;;
+        *) echo "Unknown arg: $1"; exit 2;;
     esac
 done
 
-# Catalog is required
-if [[ -z "$CATALOG" ]]; then
-    echo "ERROR: --catalog is required."
-    echo ""
-    echo "Usage: bash deploy_demo.sh --catalog YOUR_CATALOG"
-    echo ""
-    echo "Example: bash deploy_demo.sh --catalog lr_serverless_aws_us_catalog"
-    exit 1
-fi
+# Read the target's defaults from databricks.yml so script defaults track the
+# bundle. We resolve via `databricks bundle validate -o json` and parse.
+echo "==> Resolving target '$TARGET' from databricks.yml…"
+RESOLVED=$(databricks bundle validate -t "$TARGET" -o json 2>/dev/null || true)
+[[ -z "$CATALOG" ]]   && CATALOG=$(echo "$RESOLVED"   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('variables',{}).get('catalog_name',{}).get('value',''))" 2>/dev/null || echo "")
+[[ -z "$SCHEMA" ]]    && SCHEMA=$(echo "$RESOLVED"    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('variables',{}).get('schema_name',{}).get('value',''))" 2>/dev/null || echo "")
+[[ -z "$WAREHOUSE" ]] && WAREHOUSE=$(echo "$RESOLVED" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('variables',{}).get('warehouse_id',{}).get('value',''))" 2>/dev/null || echo "")
+[[ -z "$PROFILE" ]]   && PROFILE=$(echo "$RESOLVED"   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('variables',{}).get('databricks_profile',{}).get('value',''))" 2>/dev/null || echo "DEFAULT")
+APP_NAME=$(echo "$RESOLVED"   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('variables',{}).get('app_name',{}).get('value',''))" 2>/dev/null || echo "actuarial-workbench")
 
-# Auto-detect workspace username for folder path
-if [[ -z "$WORKSPACE_DIR" ]]; then
-    USERNAME=$(databricks current-user me --profile "$PROFILE" -o json 2>/dev/null \
-        | python3 -c "import sys,json; print(json.load(sys.stdin)['userName'])" 2>/dev/null || echo "unknown")
-    WORKSPACE_DIR="/Workspace/Users/${USERNAME}/solvency-ii-qrt-demo-agentic"
-    echo "Workspace folder: $WORKSPACE_DIR"
-fi
+[[ -z "$CATALOG" ]] && { echo "ERROR: catalog not resolved. Pass --catalog explicitly."; exit 1; }
+[[ -z "$SCHEMA" ]]  && { echo "ERROR: schema not resolved. Pass --schema explicitly."; exit 1; }
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SRC_DIR="${SCRIPT_DIR}/src"
+echo "    catalog:   $CATALOG"
+echo "    schema:    $SCHEMA"
+echo "    warehouse: $WAREHOUSE"
+echo "    profile:   $PROFILE"
+echo "    app_name:  $APP_NAME"
+echo "    target:    $TARGET"
+echo
 
-echo ""
-echo "============================================"
-echo "  Solvency II QRT Demo — Deployment"
-echo "============================================"
-echo "  Profile:    $PROFILE"
-echo "  Catalog:    $CATALOG"
-echo "  Schema:     $SCHEMA"
-echo "  Folder:     $WORKSPACE_DIR"
-echo "  Year:       $YEAR"
-echo "============================================"
-echo ""
+# Export for child scripts
+export CATALOG SCHEMA WAREHOUSE_ID="$WAREHOUSE" APP_NAME DATABRICKS_PROFILE="$PROFILE"
 
-# Step 1: Create workspace folder structure
-echo ">> Creating workspace folders..."
-databricks workspace mkdirs "$WORKSPACE_DIR/00_Generate_Data" --profile "$PROFILE"
-databricks workspace mkdirs "$WORKSPACE_DIR/01_QRT_S0602_Assets" --profile "$PROFILE"
-databricks workspace mkdirs "$WORKSPACE_DIR/02_QRT_S0501_PnL" --profile "$PROFILE"
-databricks workspace mkdirs "$WORKSPACE_DIR/03_QRT_S2501_SCR" --profile "$PROFILE"
-databricks workspace mkdirs "$WORKSPACE_DIR/04_QRT_S2606_NL_Risk" --profile "$PROFILE"
-databricks workspace mkdirs "$WORKSPACE_DIR/04_App" --profile "$PROFILE"
-echo "   Done."
+# ── 1. Validate prerequisites ──
+echo "==> 1/8  Validating prerequisites…"
+command -v databricks >/dev/null || { echo "  databricks CLI not found"; exit 1; }
+databricks current-user me --profile "$PROFILE" >/dev/null \
+    || { echo "  Profile $PROFILE not authenticated. Run: databricks auth login --profile $PROFILE"; exit 1; }
+echo "    ✓ CLI authenticated"
 
-# Step 2: Upload notebooks
-echo ">> Uploading notebooks..."
-
-upload_notebook() {
-    local src="$1"
-    local dest="$2"
-    databricks workspace import "$dest" \
-        --file "$src" --format SOURCE --language PYTHON --overwrite --profile "$PROFILE" 2>/dev/null \
-    && echo "   Uploaded: $dest" \
-    || echo "   FAILED:   $dest"
-}
-
-# Data generation
-upload_notebook "$SRC_DIR/00_Generate_Data/generate_data.py" \
-    "$WORKSPACE_DIR/00_Generate_Data/generate_data"
-upload_notebook "$SRC_DIR/00_Generate_Data/bootstrap_archive.py" \
-    "$WORKSPACE_DIR/00_Generate_Data/bootstrap_archive"
-upload_notebook "$SRC_DIR/00_Generate_Data/teardown.py" \
-    "$WORKSPACE_DIR/00_Generate_Data/teardown"
-upload_notebook "$SRC_DIR/00_Generate_Data/full_teardown.py" \
-    "$WORKSPACE_DIR/00_Generate_Data/full_teardown"
-upload_notebook "$SRC_DIR/00_Generate_Data/demo_walkthrough.py" \
-    "$WORKSPACE_DIR/00_Generate_Data/demo_walkthrough"
-
-# QRT notebooks
-for dir in 01_QRT_S0602_Assets 02_QRT_S0501_PnL 03_QRT_S2501_SCR 04_QRT_S2606_NL_Risk; do
-    if [[ -d "$SRC_DIR/$dir" ]]; then
-        for f in "$SRC_DIR/$dir"/*.py; do
-            [[ -f "$f" ]] || continue
-            name=$(basename "$f" .py)
-            upload_notebook "$f" "$WORKSPACE_DIR/$dir/$name"
-        done
-    fi
-done
-
-echo ""
-
-# Step 3: Bootstrap archive data (Q1-Q3)
-echo ">> Bootstrapping archive data (Q1-Q3 $YEAR)..."
-echo "   This will generate synthetic data for 3 quarters."
-echo "   Running bootstrap_archive notebook..."
-
-RUN_OUTPUT=$(databricks jobs submit \
-    --json "{
-        \"run_name\": \"QRT Demo Bootstrap\",
-        \"tasks\": [{
-            \"task_key\": \"bootstrap\",
-            \"notebook_task\": {
-                \"notebook_path\": \"$WORKSPACE_DIR/00_Generate_Data/bootstrap_archive\",
-                \"base_parameters\": {
-                    \"catalog_name\": \"$CATALOG\",
-                    \"schema_name\": \"$SCHEMA\",
-                    \"reporting_year\": \"$YEAR\",
-                    \"entity_name\": \"$ENTITY\"
-                }
-            },
-            \"environment_key\": \"default\"
-        }],
-        \"environments\": [{
-            \"environment_key\": \"default\",
-            \"spec\": {
-                \"client\": \"1\",
-                \"dependencies\": [\"numpy\"]
-            }
-        }]
-    }" \
-    --profile "$PROFILE" 2>&1)
-
-# Try to extract run_id
-RUN_ID=$(echo "$RUN_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin)['run_id'])" 2>/dev/null || echo "")
-
-if [[ -n "$RUN_ID" ]]; then
-    echo "   Bootstrap job submitted: run_id=$RUN_ID"
-    echo "   Waiting for completion..."
-    databricks jobs get-run "$RUN_ID" --profile "$PROFILE" --wait 2>/dev/null || true
-
-    STATE=$(databricks jobs get-run "$RUN_ID" --profile "$PROFILE" -o json 2>/dev/null \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['state']['result_state'])" 2>/dev/null || echo "UNKNOWN")
-
-    if [[ "$STATE" == "SUCCESS" ]]; then
-        echo "   Bootstrap complete!"
-    else
-        echo "   Bootstrap finished with state: $STATE"
-        echo "   Check the run in the Databricks UI for details."
-    fi
-else
-    echo "   Could not submit bootstrap job. Output:"
-    echo "   $RUN_OUTPUT"
-    echo ""
-    echo "   You can run it manually from the workspace:"
-    echo "   Open: $WORKSPACE_DIR/00_Generate_Data/bootstrap_archive"
-    echo "   Set parameters: catalog_name=$CATALOG, schema_name=$SCHEMA, reporting_year=$YEAR"
-fi
-
-# Step 3b: Deploy DAB bundle (DLT pipelines + workflow jobs)
-echo ">> Deploying DAB bundle (DLT pipelines + jobs)..."
-rm -rf "${SCRIPT_DIR}/.databricks/bundle/dev/sync-snapshots" "${SCRIPT_DIR}/.databricks/bundle/dev/fileset-snapshots" 2>/dev/null
-databricks bundle deploy --profile "$PROFILE" \
+# ── 2. Bundle deploy ──
+echo "==> 2/9  Bundle deploy ($TARGET)…"
+databricks bundle deploy -t "$TARGET" --profile "$PROFILE" \
     --var "catalog_name=$CATALOG" \
     --var "schema_name=$SCHEMA" \
-    2>&1 | while read -r line; do echo "   $line"; done
+    --var "warehouse_id=$WAREHOUSE"
+echo "    ✓ bundle deployed"
 
-# Step 3c: Register Standard Formula model
-echo ">> Registering Standard Formula model..."
-MODEL_OUTPUT=$(databricks jobs submit \
-    --json "{
-        \"run_name\": \"Register Standard Formula Model\",
-        \"tasks\": [{
-            \"task_key\": \"register_model\",
-            \"notebook_task\": {
-                \"notebook_path\": \"$WORKSPACE_DIR/03_QRT_S2501_SCR/register_standard_formula_model\",
-                \"base_parameters\": {
-                    \"catalog_name\": \"$CATALOG\",
-                    \"schema_name\": \"$SCHEMA\"
-                }
-            },
-            \"environment_key\": \"default\"
-        }],
-        \"environments\": [{
-            \"environment_key\": \"default\",
-            \"spec\": {
-                \"client\": \"1\",
-                \"dependencies\": [\"mlflow\", \"numpy\", \"pandas\"]
-            }
-        }]
-    }" \
-    --profile "$PROFILE" 2>&1)
-MODEL_STATE=$(echo "$MODEL_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('state',{}).get('result_state','UNKNOWN'))" 2>/dev/null || echo "UNKNOWN")
-echo "   Model registration: $MODEL_STATE"
+# ── 2b. Volumes (idempotent CREATE IF NOT EXISTS — bundle doesn't support adoption of pre-existing volumes) ──
+echo "==> 2b/9  Ensuring UC volumes…"
+for vol in regulatory_exports "4_eng_stochastic_exchange" "4_eng_life_exchange"; do
+    databricks api post /api/2.0/sql/statements --profile "$PROFILE" --json "{
+        \"warehouse_id\": \"$WAREHOUSE\",
+        \"statement\": \"CREATE VOLUME IF NOT EXISTS \\\`$CATALOG\\\`.\\\`$SCHEMA\\\`.\\\`$vol\\\`\",
+        \"wait_timeout\": \"30s\"
+    }" >/dev/null 2>&1 \
+        && echo "    ✓ $vol" \
+        || echo "    (warn: failed to ensure $vol — continuing)"
+done
 
-# Step 3d: Run all QRT pipelines
-echo ">> Running QRT pipelines..."
-databricks jobs list --profile "$PROFILE" -o json 2>/dev/null | python3 -c "
-import sys, json, subprocess
-jobs = json.load(sys.stdin)
-for j in (jobs.get('jobs', jobs) if isinstance(jobs, dict) else jobs):
-    name = j.get('settings',{}).get('name','')
-    if 'QRT S.' in name:
-        jid = str(j['job_id'])
-        subprocess.run(['databricks','jobs','run-now',jid,'--no-wait','--profile','$PROFILE'], capture_output=True)
-        print(f'   Triggered: {name}')
-" 2>/dev/null
-echo "   Pipelines triggered (running in background)."
+# ── 3. Bundle run: governance + seed (idempotent — register notebooks skip if already registered) ──
+echo "==> 3/8  Running governance_setup job (registers MLflow models, seeds governance + Phase 5 tables)…"
+databricks bundle run governance_setup -t "$TARGET" --profile "$PROFILE" 2>&1 | tail -3
+echo "    ✓ governance + seed complete"
 
-# Step 3e: Add table and column descriptions
-echo ">> Adding table descriptions..."
-if [[ -f "${SCRIPT_DIR}/scripts/add_descriptions.py" ]]; then
-    python3 "${SCRIPT_DIR}/scripts/add_descriptions.py" 2>&1 | grep -E "^(Adding|Done)" | while read -r line; do echo "   $line"; done
-fi
-
-# Step 4: Create Lakeview dashboard and Genie space
-echo ">> Creating Lakeview dashboard and Genie space..."
-
-if [[ -f "${SCRIPT_DIR}/scripts/create_dashboard.py" ]]; then
-    python3 "${SCRIPT_DIR}/scripts/create_dashboard.py" 2>&1 | while read -r line; do
-        echo "   $line"
-    done
+# ── 4. Lakeview dashboard ──
+DASHBOARD_ID=""
+if [[ -f scripts/create_dashboard_v2.py ]]; then
+    echo "==> 4/8  Lakeview dashboard (idempotent)…"
+    DASHBOARD_OUT=$(python3 scripts/create_dashboard_v2.py 2>&1 || true)
+    DASHBOARD_ID=$(echo "$DASHBOARD_OUT" | grep -oE '[a-f0-9]{32}' | head -1 || echo "")
+    if [[ -n "$DASHBOARD_ID" ]]; then
+        echo "    ✓ dashboard $DASHBOARD_ID"
+    else
+        echo "    (dashboard create skipped or failed — see scripts/create_dashboard_v2.py output)"
+    fi
 else
-    echo "   scripts/create_dashboard.py not found — skipping dashboard creation."
-    echo "   Run it manually: python3 scripts/create_dashboard.py"
+    echo "==> 4/8  scripts/create_dashboard_v2.py not present — skipping dashboard"
 fi
 
-# Create Genie space with tables (tables must be sorted by identifier)
-echo "   Creating Genie space..."
-GENIE_PAYLOAD=$(python3 -c "
-import json
-tables = sorted([
-    '1_raw_assets', '1_raw_premiums', '1_raw_claims', '1_raw_expenses', '1_raw_risk_factors',
-    '1_raw_own_funds', '1_raw_balance_sheet', '2_stg_scr_results', '1_raw_counterparties',
-    '1_raw_reinsurance', '2_stg_assets_enriched',
-    '3_qrt_s0602_list_of_assets', '3_qrt_s0602_summary',
-    '2_stg_premiums_by_lob', '2_stg_claims_by_lob', '2_stg_expenses_by_lob',
-    '3_qrt_s0501_premiums_claims_expenses', '3_qrt_s0501_summary',
-    '3_qrt_s2501_scr_breakdown', '3_qrt_s2501_summary',
-    '3_qrt_s2606_nl_uw_risk', '3_qrt_s2606_summary',
-    '2_stg_cat_risk_by_lob', '2_stg_premium_reserve_risk',
-    '4_eng_stochastic_results', '4_eng_stochastic_run_log',
-    '1_raw_claims_triangles', '1_raw_volume_measures',
-])
-print(json.dumps({
-    'title': 'Solvency II QRT Assistant',
-    'description': 'Ask questions about Bricksurance SE Solvency II data: assets, premiums, claims, SCR, solvency ratio, own funds.',
-    'warehouse_id': '$WAREHOUSE_ID',
-    'parent_path': '/Workspace/Users/$USERNAME',
-    'serialized_space': json.dumps({
-        'version': 2,
-        'data_sources': {
-            'tables': [{'identifier': f'$CATALOG.$SCHEMA.{t}'} for t in tables]
-        }
-    })
-}))
-")
-
-echo "$GENIE_PAYLOAD" > /tmp/genie_deploy_payload.json
-GENIE_OUTPUT=$(databricks api post /api/2.0/genie/spaces --profile "$PROFILE" --json @/tmp/genie_deploy_payload.json 2>&1)
-rm -f /tmp/genie_deploy_payload.json
-GENIE_ID=$(echo "$GENIE_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('space_id',''))" 2>/dev/null || echo "")
-if [[ -n "$GENIE_ID" ]]; then
-    GENIE_TABLES=$(echo "$GENIE_OUTPUT" | python3 -c "import sys,json; ss=json.loads(json.load(sys.stdin).get('serialized_space','{}')); print(len(ss.get('data_sources',{}).get('tables',[])))" 2>/dev/null || echo "0")
-    echo "   Genie space created: $GENIE_ID ($GENIE_TABLES tables)"
+# ── 5. Genie space ──
+GENIE_ID=""
+USERNAME=$(databricks current-user me --profile "$PROFILE" -o json | python3 -c "import sys,json; print(json.load(sys.stdin).get('userName',''))")
+if [[ -f scripts/deploy_genie_space.py && -n "$USERNAME" ]]; then
+    echo "==> 5/8  Genie space (idempotent)…"
+    GENIE_ID=$(python3 scripts/deploy_genie_space.py \
+        --profile "$PROFILE" --catalog "$CATALOG" --schema "$SCHEMA" \
+        --warehouse "$WAREHOUSE" --parent "/Workspace/Users/$USERNAME" 2>/dev/null || echo "")
+    if [[ -n "$GENIE_ID" ]]; then
+        echo "    ✓ Genie space $GENIE_ID"
+    else
+        echo "    (Genie create returned no ID — workspace may not have Genie permissions)"
+    fi
 else
-    echo "   Genie space creation failed: $GENIE_OUTPUT"
+    echo "==> 5/8  Genie deploy script or username missing — skipping Genie"
 fi
 
-# Step 5: Deploy the Databricks App
-echo ">> Deploying Databricks App..."
-APP_NAME="solvency2-qrt-ai"
-APP_WS_PATH="/Workspace/Users/${USERNAME}/solvency-ii-qrt-demo-agentic/04_App"
+# ── 6. Re-deploy bundle with dashboard_id + genie_space_id baked in ──
+if [[ -n "$DASHBOARD_ID" || -n "$GENIE_ID" ]]; then
+    echo "==> 6/8  Re-deploying bundle with runtime resource IDs…"
+    databricks bundle deploy -t "$TARGET" --profile "$PROFILE" \
+        --var "catalog_name=$CATALOG" \
+        --var "schema_name=$SCHEMA" \
+        --var "warehouse_id=$WAREHOUSE" \
+        --var "dashboard_id=$DASHBOARD_ID" \
+        --var "genie_space_id=$GENIE_ID"
+    # The app resource was deployed in step 2 with empty IDs; redeploying the
+    # bundle propagates the new env var values into app.yaml automatically.
+    echo "    ✓ bundle re-deployed with dashboard_id=$DASHBOARD_ID genie_space_id=$GENIE_ID"
+else
+    echo "==> 6/8  No dashboard / Genie IDs — skipping re-deploy"
+fi
 
-# Create the app (ignore error if it already exists)
-databricks apps create "$APP_NAME" --profile "$PROFILE" 2>/dev/null || true
-
-# Upload app source files (skip .venv and node_modules)
-echo "   Uploading app files..."
-databricks workspace mkdirs "$APP_WS_PATH/frontend/dist/1_raw_assets" --profile "$PROFILE"
-databricks workspace mkdirs "$APP_WS_PATH/server/routes" --profile "$PROFILE"
-
-for f in app.py app.yaml requirements.txt; do
-    [[ -f "$SRC_DIR/app/$f" ]] && databricks workspace import "$APP_WS_PATH/$f" \
-        --file "$SRC_DIR/app/$f" --format AUTO --overwrite --profile "$PROFILE" 2>/dev/null
-done
-for f in server/__init__.py server/config.py server/sql.py server/routes/__init__.py server/routes/reports.py server/routes/approvals.py; do
-    [[ -f "$SRC_DIR/app/$f" ]] && databricks workspace import "$APP_WS_PATH/$f" \
-        --file "$SRC_DIR/app/$f" --format AUTO --overwrite --profile "$PROFILE" 2>/dev/null
-done
-for f in "$SRC_DIR/app/frontend/dist/"*; do
-    [[ -f "$f" ]] && databricks workspace import "$APP_WS_PATH/frontend/dist/$(basename "$f")" \
-        --file "$f" --format AUTO --overwrite --profile "$PROFILE" 2>/dev/null
-done
-for f in "$SRC_DIR/app/frontend/dist/assets/"*; do
-    [[ -f "$f" ]] && databricks workspace import "$APP_WS_PATH/frontend/dist/assets/$(basename "$f")" \
-        --file "$f" --format AUTO --overwrite --profile "$PROFILE" 2>/dev/null
-done
-
-echo "   Deploying app..."
-databricks apps deploy "$APP_NAME" --source-code-path "$APP_WS_PATH" --profile "$PROFILE" 2>&1 \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'   App status: {d.get(\"status\",{}).get(\"state\",\"unknown\")}')" 2>/dev/null \
-    || echo "   App deploy may need manual start."
-
-APP_URL=$(databricks apps get "$APP_NAME" --profile "$PROFILE" -o json 2>/dev/null \
-    | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || echo "")
-
-# Grant the app's service principal access to data and warehouse
+# ── 7. App service principal grants ──
+echo "==> 7/8  Applying app service-principal grants (fail loud on error)…"
 APP_SP=$(databricks apps get "$APP_NAME" --profile "$PROFILE" -o json 2>/dev/null \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('service_principal_client_id',''))" 2>/dev/null || echo "")
-
 if [[ -n "$APP_SP" ]]; then
-    echo "   Granting permissions to app service principal $APP_SP..."
-
-    # Schema permissions
-    databricks api post /api/2.0/sql/statements --json "{
-        \"warehouse_id\": \"$WAREHOUSE_ID\",
-        \"statement\": \"GRANT USE CATALOG ON CATALOG $CATALOG TO \\\`$APP_SP\\\`\",
+    echo "    Granting USE CATALOG / ALL PRIVILEGES ON SCHEMA / CAN_USE warehouse to SP $APP_SP…"
+    databricks api post /api/2.0/sql/statements --profile "$PROFILE" --json "{
+        \"warehouse_id\": \"$WAREHOUSE\",
+        \"statement\": \"GRANT USE CATALOG ON CATALOG \\\`$CATALOG\\\` TO \\\`$APP_SP\\\`\",
         \"wait_timeout\": \"30s\"
-    }" --profile "$PROFILE" 2>/dev/null
-
-    databricks api post /api/2.0/sql/statements --json "{
-        \"warehouse_id\": \"$WAREHOUSE_ID\",
-        \"statement\": \"GRANT ALL PRIVILEGES ON SCHEMA $CATALOG.$SCHEMA TO \\\`$APP_SP\\\`\",
+    }" >/dev/null || { echo "    GRANT USE CATALOG failed"; exit 1; }
+    databricks api post /api/2.0/sql/statements --profile "$PROFILE" --json "{
+        \"warehouse_id\": \"$WAREHOUSE\",
+        \"statement\": \"GRANT ALL PRIVILEGES ON SCHEMA \\\`$CATALOG\\\`.\\\`$SCHEMA\\\` TO \\\`$APP_SP\\\`\",
         \"wait_timeout\": \"30s\"
-    }" --profile "$PROFILE" 2>/dev/null
-
-    # Warehouse access
-    databricks api patch "/api/2.0/permissions/sql/warehouses/$WAREHOUSE_ID" --profile "$PROFILE" --json "{
+    }" >/dev/null || { echo "    GRANT ALL PRIVILEGES failed"; exit 1; }
+    databricks api patch "/api/2.0/permissions/sql/warehouses/$WAREHOUSE" --profile "$PROFILE" --json "{
         \"access_control_list\": [{
             \"service_principal_name\": \"$APP_SP\",
             \"permission_level\": \"CAN_USE\"
         }]
-    }" 2>/dev/null
-
-    echo "   Permissions granted."
+    }" >/dev/null || { echo "    Warehouse permission grant failed"; exit 1; }
+    echo "    ✓ grants applied"
+else
+    echo "    (App SP not yet known — app may not be deployed; grants skipped)"
 fi
 
-echo ""
+# ── 8. Final URLs ──
+echo "==> 8/8  Final URLs"
+APP_URL=$(databricks apps get "$APP_NAME" --profile "$PROFILE" -o json 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('url',''))" 2>/dev/null || echo "")
+WS_HOST=$(databricks current-user me --profile "$PROFILE" -o json 2>/dev/null \
+    | python3 -c "import sys,json; print('https://' + json.load(sys.stdin).get('userName','').split('@')[1]) if False else None; print('')" || echo "")
+
+echo
 echo "============================================================================"
-echo "  DEPLOYMENT COMPLETE"
+echo "  DEPLOY COMPLETE"
 echo "============================================================================"
-echo ""
-echo "  Next steps:"
-echo ""
-echo "  1. Open your workspace and go to:"
-echo "     $WORKSPACE_DIR/00_START_HERE"
-echo ""
-echo "  2. Before your first demo, run:"
-echo "     $WORKSPACE_DIR/00_Generate_Data/04_inject_demo_gotchas"
-echo "     Then re-trigger the S.05.01 and S.26.06 pipelines."
-echo ""
-echo "  3. Demo scripts are in:"
-echo "     $WORKSPACE_DIR/05_AI_Agents/01_demo_agent_eli5"
-echo "     $WORKSPACE_DIR/05_AI_Agents/02_demo_agent_walkthrough"
-echo ""
-if [[ -n "$APP_URL" ]]; then
-echo "  App URL:"
-echo "    $APP_URL"
-echo ""
-fi
-echo "  Data:     $CATALOG.$SCHEMA"
-echo "  Teardown: $WORKSPACE_DIR/00_Generate_Data/99_full_teardown"
+[[ -n "$APP_URL" ]]      && echo "  App:        $APP_URL"
+[[ -n "$DASHBOARD_ID" ]] && echo "  Dashboard:  $DASHBOARD_ID"
+[[ -n "$GENIE_ID" ]]     && echo "  Genie:      $GENIE_ID"
+echo "  Catalog:    $CATALOG"
+echo "  Schema:     $SCHEMA"
+echo
+echo "  Next: bash scripts/preflight_check.sh --profile $PROFILE"
 echo "============================================================================"

@@ -64,6 +64,9 @@ variables:
   genie_space_id:
     description: Genie space UUID (set by deploy_demo.sh)
     default: ""
+  backstage_notebook_path:
+    description: Workspace path to the technical-deep-dive notebook for the sidebar Backstage link
+    default: ""
 
   # — Workspace / auth —
   workspace_host:

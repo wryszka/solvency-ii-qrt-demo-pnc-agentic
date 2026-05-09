@@ -37,6 +37,18 @@ resources:
               reporting_year: "2025"
           environment_key: default
 
+        - task_key: seed_phase5_demo
+          depends_on:
+            - task_key: bootstrap_governance
+          notebook_task:
+            notebook_path: ../src/01_Bootstrap_Governance/seed_phase5_demo.py
+            base_parameters:
+              catalog_name: ${var.catalog_name}
+              schema_name: ${var.schema_name}
+              warehouse_id: ${var.warehouse_id}
+              databricks_profile: ${var.databricks_profile}
+          environment_key: default
+
       environments:
         - environment_key: default
           spec:
