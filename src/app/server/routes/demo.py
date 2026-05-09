@@ -596,6 +596,341 @@ async def run_stress(req: StressRequest, request: Request):
     }
 
 
+# ── Time-relative rebase ────────────────────────────────────────────────────
+#
+# Compute every demo date anchor from today() at reset time, so a fresh
+# `Reset Demo` always reads as "this is happening this week" regardless of
+# the calendar date. The seed_phase5.py script is the bootstrap; this is
+# the in-app rebase that mirrors it but uses execute_query so it can run
+# against a live deployment.
+
+def _quarter_for(date: "datetime") -> tuple[int, int, "datetime", "datetime"]:
+    """Return (year, q_num, q_start, q_end_exclusive) for date."""
+    q = (date.month - 1) // 3 + 1
+    start_month = (q - 1) * 3 + 1
+    start = datetime(date.year, start_month, 1, tzinfo=timezone.utc)
+    if q == 4:
+        end = datetime(date.year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(date.year, start_month + 3, 1, tzinfo=timezone.utc)
+    return date.year, q, start, end
+
+
+def _quarter_label(year: int, q: int) -> str:
+    return f"{year}-Q{q}"
+
+
+def _last_weekday_on_or_before(date: "datetime", weekday: int) -> "datetime":
+    """Most recent date with the given weekday (0=Mon..6=Sun) on or before `date`."""
+    delta = (date.weekday() - weekday) % 7
+    return date - timedelta(days=delta)
+
+
+def _next_weekday_after(date: "datetime", weekday: int) -> "datetime":
+    delta = (weekday - date.weekday()) % 7
+    if delta == 0:
+        delta = 7
+    return date + timedelta(days=delta)
+
+
+async def _rebase_demo_state() -> dict[str, str]:
+    """Rewrite all date-anchored Phase 5 demo state to be relative to today."""
+    today = datetime.now(timezone.utc).replace(microsecond=0)
+    today_date = today.replace(hour=0, minute=0, second=0)
+    yyyy, q, q_start, q_end_excl = _quarter_for(today_date)
+    q_end = q_end_excl - timedelta(days=1)
+    current_period = _quarter_label(yyyy, q)
+    deadline = q_end + timedelta(weeks=5)
+
+    # Late-feed anchors: last Friday before today (expected), last Monday before today (received).
+    # Handle weekend resets gracefully (e.g. running on a Tuesday → Monday=yesterday is fine).
+    FRIDAY, MONDAY, SATURDAY, WEDNESDAY = 4, 0, 5, 2
+    last_friday  = _last_weekday_on_or_before(today_date, FRIDAY).replace(hour=17, minute=0, tzinfo=timezone.utc)   # 18:00 CET
+    last_monday  = _last_weekday_on_or_before(today_date, MONDAY).replace(hour=8, minute=47, tzinfo=timezone.utc)   # 09:47 CET
+    if last_monday >= today:                  # if "last Monday" is later than today (impossible, but guard)
+        last_monday = last_monday - timedelta(days=7)
+    monday_email = last_monday.replace(hour=7, minute=15)                      # 08:15 CET auto-email
+    monday_slack = last_monday.replace(hour=10, minute=0)                      # 11:00 CET escalation
+    today_eta    = today.replace(hour=12, minute=30, second=0)                 # 14:30 CET
+    next_wednesday = _next_weekday_after(today_date, WEDNESDAY).date()         # Sarah back from OOO
+
+    # Storm date — place inside current quarter so the cat agent's "current period storm"
+    # narrative is coherent. Two weeks before quarter-end works for any quarter.
+    storm_end   = (q_end - timedelta(days=14)).date()
+    storm_start = (q_end - timedelta(days=16)).date()
+
+    last_saturday = _last_weekday_on_or_before(today_date, SATURDAY).replace(hour=2, minute=47, tzinfo=timezone.utc)
+    nightly_orsa  = today_date.replace(hour=2, minute=14, tzinfo=timezone.utc)
+
+    # ── 1. Data feeds ───────────────────────────────────────────────────────
+    feeds_table = fqn("6_demo_data_feeds")
+    await execute_query(f"DELETE FROM {feeds_table}")
+    feeds_rows = [
+        # Late ABN AMRO custodian (Scene 3) — anchored relative to today
+        ("custodian_holdings_abn", "ABN AMRO Custody Services", "ABN AMRO",
+         "Janusz Kowalski", "Custody Operations Lead, Amsterdam", "janusz.kowalski@abnamro.example.com",
+         last_friday, last_monday, "received_late",
+         monday_slack, "Slack escalation to ops lead",
+         "Auto-email Mon 08:15 CET; Slack escalation Mon 11:00 CET; Janusz responded ETA validate+ingest 14:30",
+         today_eta, ["S.06.02"], ["standard_formula:market_risk"],
+         2_300_000.0,
+         "Custodian holdings file delivered late vs Friday 18:00 CET expected. Cause: ABN AMRO weekend "
+         "batch reprocessing. Phantom EUR 2.3M asset/own-funds break in cross-QRT recon resolves once feed lands.",
+         current_period),
+        # On-time peer feeds (received during current quarter close)
+        ("policies_pas", "Bricksurance Policy Administration System", "Bricksurance internal",
+         "Internal", "PAS Operations", "pas-ops@bricksurance.example.com",
+         last_friday, last_friday - timedelta(hours=1), "received_on_time", None, None, None, None,
+         ["S.05.01", "S.12.01"], [], 0.0, "Standard close batch.", current_period),
+        ("claims_pas", "Bricksurance Claims Administration", "Bricksurance internal",
+         "Internal", "Claims Operations", "claims-ops@bricksurance.example.com",
+         last_friday, last_friday - timedelta(hours=1), "received_on_time", None, None, None, None,
+         ["S.05.01", "S.26.06"], ["reserving_pnc"], 0.0,
+         "Includes storm-event claim notifications.", current_period),
+        ("exposures_underwriting", "Underwriting platform", "Bricksurance internal",
+         "Internal", "Underwriting Ops", "uw-ops@bricksurance.example.com",
+         last_friday, last_friday - timedelta(hours=1), "received_on_time", None, None, None, None,
+         ["S.26.06"], ["igloo_cat"], 0.0, "Exposure layers ready for cat engine.", current_period),
+        ("ri_treaties", "ReinsurePro", "Munich Re — broker channel",
+         "Internal", "Reinsurance Operations", "ri-ops@bricksurance.example.com",
+         last_friday + timedelta(days=1), last_friday + timedelta(days=2), "received_on_time", None, None, None, None,
+         ["S.26.06", "S.05.01"], [], 0.0, "Quarterly cession statement.", current_period),
+    ]
+    for r in feeds_rows:
+        params = []
+        for i, v in enumerate(r):
+            params.append(StatementParameterListItem(name=f"p{i}", value=_demo_param_value(v)))
+        cells_lit = "array(" + ",".join("'" + c.replace("'", "''") + "'" for c in (r[13] or [])) + ")"
+        stale_lit = "array(" + ",".join("'" + c.replace("'", "''") + "'" for c in (r[14] or [])) + ")"
+        # Build INSERT with positional cast for timestamps
+        await execute_query(
+            f"INSERT INTO {feeds_table} "
+            "(feed_name, source_system, source_party, owner_contact_name, owner_contact_role, owner_contact_email, "
+            " expected_at, received_at, status, last_contact_at, last_contact_method, last_contact_notes, "
+            " eta_at, blocks_qrts, stale_models, recon_phantom_eur, notes, reporting_period) VALUES ("
+            ":p0, :p1, :p2, :p3, :p4, :p5, "
+            "CAST(:p6 AS TIMESTAMP), CAST(:p7 AS TIMESTAMP), :p8, "
+            f"CAST(NULLIF(:p9, '') AS TIMESTAMP), {_nullable(':p10')}, {_nullable(':p11')}, "
+            f"CAST(NULLIF(:p12, '') AS TIMESTAMP), {cells_lit}, {stale_lit}, "
+            ":p15, :p16, :p17)",
+            parameters=params,
+        )
+
+    # ── 2. Solvency daily series — rolling 90 days ending today ─────────────
+    solvency_table = fqn("6_demo_solvency_daily")
+    await execute_query(f"DELETE FROM {solvency_table}")
+    import random
+    rng = random.Random(42)
+    base = 211.0
+    series: list[tuple] = []
+    cur = base
+    for d in range(90):
+        observed = (today_date - timedelta(days=89 - d)).date()
+        # Engineer the four named inflections in the last week
+        if d == 85:
+            cur += -1.2
+            ratio = round(cur, 1)
+            driver, klass, delta = "Storm-event claims notification", "claims", -1.2
+        elif d == 86:
+            cur += 0.6
+            ratio = round(cur, 1)
+            driver, klass, delta = "Equity rebound — DAX +1.4%", "market", 0.6
+        elif d == 87:
+            cur += -0.4
+            ratio = round(cur, 1)
+            driver, klass, delta = "Custodian valuation drop", "market", -0.4
+        elif d == 88:
+            cur += -0.2
+            ratio = round(cur, 1)
+            driver, klass, delta = "Property cat IBNR refresh from Igloo candidate", "claims", -0.2
+        else:
+            cur += (rng.random() - 0.5) * 0.4
+            ratio = round(cur, 1)
+            driver, klass, delta = "—", "drift", round(ratio - (series[-1][1] if series else ratio), 2)
+        series.append((observed, ratio, 556_000_000.0, 1_850_000_000.0 * (ratio / 333.0), float(delta), driver, klass))
+
+    # Insert in batches via parameterised statements
+    for i in range(0, len(series), 30):
+        batch = series[i:i + 30]
+        values = []
+        for j, (od, r, scr, of, delta, drv, klass) in enumerate(batch):
+            drv_lit = "'" + str(drv).replace("'", "''") + "'"
+            klass_lit = "'" + str(klass).replace("'", "''") + "'"
+            values.append(f"(CAST('{od.isoformat()}' AS DATE), {r}, {scr}, {of}, {delta}, {drv_lit}, {klass_lit})")
+        await execute_query(
+            f"INSERT INTO {solvency_table} (observed_date, ratio_pct, scr_eur, own_funds_eur, delta_vs_prior_pp, driver, driver_class) VALUES "
+            + ", ".join(values)
+        )
+
+    # ── 3. ORSA history — rolling 30 days × 3 stresses × 4 year-offsets ─────
+    orsa_hist_table = fqn("6_demo_orsa_history")
+    await execute_query(f"DELETE FROM {orsa_hist_table}")
+    SCENARIOS = [
+        ("natcat_1_in_200",     "1-in-200 nat cat",          [333, 257, 250, 251]),
+        ("equity_minus_30",     "Equity shock −30%",          [333, 245, 248, 252]),
+        ("mass_lapse_plus_35",  "Mass lapse +35%",            [333, 195, 165, 142]),
+    ]
+    rng2 = random.Random(7)
+    orsa_rows: list[str] = []
+    for d in range(30):
+        observed = (today_date - timedelta(days=29 - d)).date()
+        ml_drift = 142 - (4.0 * d / 29.0)
+        for sid, sname, base_ratios in SCENARIOS:
+            for yo, base_ratio in enumerate(base_ratios):
+                if sid == "mass_lapse_plus_35" and yo == 3:
+                    ratio = round(ml_drift + (rng2.random() - 0.5) * 0.5, 1)
+                else:
+                    ratio = round(base_ratio + (rng2.random() - 0.5) * 1.5, 1)
+                py = today_date.year + yo
+                orsa_rows.append(
+                    f"(CAST('{observed.isoformat()}' AS DATE), '{sid}', "
+                    f"'{sname.replace(chr(39), chr(39)*2)}', {yo}, {py}, {ratio}, "
+                    f"556000000.0, {1_850_000_000.0 * (ratio / 333.0)}, "
+                    f"'{observed.isoformat()}-{sid}')"
+                )
+    for i in range(0, len(orsa_rows), 80):
+        batch = orsa_rows[i:i + 80]
+        await execute_query(
+            f"INSERT INTO {orsa_hist_table} (observed_date, scenario_id, scenario_name, year_offset, projection_year, "
+            f"ratio_pct, scr_eur, own_funds_eur, run_label) VALUES "
+            + ", ".join(batch)
+        )
+
+    # ── 4. SF Challenger — submitted 9d ago, 3 reminders, OOO until next Wed ─
+    nine_days_ago = today - timedelta(days=9)
+    six_days_ago  = today - timedelta(days=6)
+    today_reminder = today.replace(hour=9, minute=0)
+    await execute_query(
+        f"UPDATE {fqn('6_demo_sf_challenger')} SET "
+        f"submitted_at = CAST(:s AS TIMESTAMP), "
+        f"approver_oo_until = CAST(:o AS DATE), "
+        f"last_reminder_at = CAST(:r AS TIMESTAMP), "
+        f"approver_status = 'out_of_office', "
+        f"deputy_status = 'available', "
+        f"current_state = 'pending_approval', "
+        f"promoted_at = NULL, promoted_by = NULL",
+        parameters=[
+            StatementParameterListItem(name="s", value=nine_days_ago.strftime("%Y-%m-%d %H:%M:%S")),
+            StatementParameterListItem(name="o", value=next_wednesday.isoformat()),
+            StatementParameterListItem(name="r", value=today_reminder.strftime("%Y-%m-%d %H:%M:%S")),
+        ],
+    )
+    # Retain six_days_ago / nine_days_ago variable names for clarity
+    _ = six_days_ago
+
+    # ── 5. Storm event — shift Henrik to current quarter's late period ──────
+    storm_table = fqn("6_demo_event_log")
+    await execute_query(f"DELETE FROM {storm_table} WHERE event_id = 'storm_henrik_2025'")
+    await execute_query(
+        f"INSERT INTO {storm_table} "
+        f"(event_id, event_name, event_type, start_date, end_date, region, peak_intensity, "
+        f"peak_intensity_unit, affected_lobs, modelled_aal_eur_m, notes) VALUES "
+        f"('storm_henrik_2025', 'Storm Henrik', 'windstorm', "
+        f"CAST('{storm_start.isoformat()}' AS DATE), CAST('{storm_end.isoformat()}' AS DATE), "
+        f"'Northern Germany + Denmark', 142.0, 'km/h peak gust', "
+        f"array('property', 'motor_liability'), 137.8, "
+        f"'Severe European windstorm in current quarter. Peak gust 142 km/h Skagen. ~70%% of cat loss concentrated in this 3-day window.')"
+    )
+
+    # ── 6. Cyber book — refresh as_of_date to today ─────────────────────────
+    await execute_query(
+        f"UPDATE {fqn('6_demo_cyber_book')} SET as_of_date = CAST(:t AS DATE)",
+        parameters=[StatementParameterListItem(name="t", value=today_date.date().isoformat())],
+    )
+
+    # ── 7. ORSA draft — refresh nightly timestamps on live sections ─────────
+    await execute_query(
+        f"UPDATE {fqn('gold_orsa_draft')} SET last_quantitative_refresh = CAST(:t AS TIMESTAMP) "
+        f"WHERE status = 'live'",
+        parameters=[StatementParameterListItem(name="t", value=nightly_orsa.strftime("%Y-%m-%d %H:%M:%S"))],
+    )
+
+    # ── 8. Submissions archive — move in_progress row to current_period ─────
+    # Drop any in_progress rows then re-insert under the current period name.
+    arch = fqn("gold_submissions_archive")
+    await execute_query(f"DELETE FROM {arch} WHERE status = 'in_progress'")
+    in_prog_qrts = [
+        ("S.05.01", "Premiums, Claims & Expenses",  "qrt"),
+        ("S.06.02", "Asset Register",                "qrt"),
+        ("S.12.01", "Life Technical Provisions",      "qrt"),
+        ("S.25.01", "SCR — Standard Formula",         "qrt"),
+        ("S.26.06", "Non-Life Underwriting Risk",     "qrt"),
+    ]
+    for qrt, title, doc_type in in_prog_qrts:
+        await execute_query(
+            f"INSERT INTO {arch} "
+            f"(period, qrt, qrt_title, doc_type, status, "
+            f" submitted_at, submitted_by, reviewed_by, reviewed_at, "
+            f" cycle_days, dq_pass_rate, feeds_complete, "
+            f" headline_metric, headline_value, narrative, audit_snapshot_id) VALUES "
+            f"(:p, :q, :t, :d, 'in_progress', NULL, 'Laurence Ryszka', NULL, NULL, "
+            f" NULL, 99.2, '7/8', 'Status', 'Drafting', "
+            f" 'In progress. ABN AMRO custodian feed running late (Janusz Kowalski following up). "
+            f"All other feeds received on schedule.', :s)",
+            parameters=[
+                StatementParameterListItem(name="p", value=current_period),
+                StatementParameterListItem(name="q", value=qrt),
+                StatementParameterListItem(name="t", value=title),
+                StatementParameterListItem(name="d", value=doc_type),
+                StatementParameterListItem(name="s", value=f"snap-{current_period}-{qrt.replace('.', '')}"),
+            ],
+        )
+
+    return {
+        "today": today_date.date().isoformat(),
+        "current_period": current_period,
+        "current_period_end": q_end.date().isoformat(),
+        "deadline": deadline.date().isoformat(),
+        "storm_date": storm_end.isoformat(),
+        "last_friday": last_friday.date().isoformat(),
+        "last_monday": last_monday.date().isoformat(),
+        "next_wednesday_oo": next_wednesday.isoformat(),
+    }
+
+
+def _demo_param_value(v) -> str:
+    """Shape a value for an SDK StatementParameterListItem (string-only)."""
+    if v is None:
+        return ""
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(v, list):
+        return ""               # arrays handled with literal substitution
+    return str(v)
+
+
+def _nullable(param_ref: str) -> str:
+    return f"NULLIF({param_ref}, '')"
+
+
+# ── Period state — single source of truth for the in-progress quarter ──────
+
+@router.get("/period-state")
+async def period_state():
+    """Returns current_period, deadline, days remaining — used by the Today header."""
+    today = datetime.now(timezone.utc).replace(microsecond=0)
+    yyyy, q, _qs, q_end_excl = _quarter_for(today)
+    q_end = q_end_excl - timedelta(days=1)
+    deadline = q_end + timedelta(weeks=5)
+
+    def business_days_between(a: "datetime", b: "datetime") -> int:
+        if b <= a: return 0
+        days = 0; cur = a.date(); end = b.date()
+        while cur <= end:
+            if cur.weekday() < 5: days += 1
+            cur = cur + timedelta(days=1)
+        return days
+
+    return {
+        "today": today.date().isoformat(),
+        "current_period": _quarter_label(yyyy, q),
+        "current_period_end": q_end.date().isoformat(),
+        "deadline": deadline.date().isoformat(),
+        "business_days_to_deadline": business_days_between(today, deadline),
+        "status": "in_progress",
+    }
+
+
 # ── Reset Demo ──────────────────────────────────────────────────────────────
 
 @router.post("/reset")
@@ -674,5 +1009,23 @@ async def reset_demo(request: Request):
     except Exception as exc:
         actions.append(f"ORSA draft rewind FAILED: {exc}")
 
+    # 8. Rebase all date-anchored state to today (Phase 5d evergreen demo)
+    try:
+        rebase_info = await _rebase_demo_state()
+        actions.append(f"Dates rebased to today ({rebase_info['today']}, current period {rebase_info['current_period']})")
+    except Exception as exc:
+        logger.exception("rebase failed")
+        actions.append(f"Rebase FAILED: {exc}")
+
     elapsed_s = (datetime.now(timezone.utc) - started).total_seconds()
     return {"status": "ok", "elapsed_seconds": elapsed_s, "actions": actions, "by": user}
+
+
+@router.post("/rebase")
+async def rebase_only(request: Request):
+    """Run only the time-relative rebase (no approval / overlay rewinds)."""
+    user = get_request_user(request)
+    started = datetime.now(timezone.utc)
+    info = await _rebase_demo_state()
+    elapsed_s = (datetime.now(timezone.utc) - started).total_seconds()
+    return {"status": "ok", "elapsed_seconds": elapsed_s, "by": user, **info}

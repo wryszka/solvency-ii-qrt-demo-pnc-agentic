@@ -46,8 +46,8 @@ export default function ResetDemoButton() {
                 <h3 className="text-base font-bold text-gray-900">Reset demo state?</h3>
                 <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
                   This reverts approvals, overlays, ORSA narratives, and what-if runs created during
-                  the demo to the pre-demo baseline. Continuous solvency + ORSA history are
-                  unaffected.
+                  the demo, and rebases all timestamps (late feed, SF Challenger, ORSA history,
+                  daily solvency series) to today's date.
                 </p>
               </div>
               <button onClick={() => !busy && setOpen(false)} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>

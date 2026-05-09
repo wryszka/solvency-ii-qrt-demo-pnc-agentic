@@ -279,6 +279,15 @@ async def q4_pain_summary():
                 "drill_path": "/lab",
                 "context": {"divergence_eur": g_row.get("difference")},
             },
+            {
+                "id": "H",
+                "title": "Stochastic candidate awaiting actuarial review",
+                "fired": True,
+                "severity": "warn",
+                "headline": "Igloo Q4 cat output +12% vs prior quarter — outside normal volatility band, cat agent recommendation pending",
+                "drill_path": "/lab/igloo_cat",
+                "context": {"engine": "igloo_cat"},
+            },
         ]
         return {"pains": pains}
     except Exception as exc:

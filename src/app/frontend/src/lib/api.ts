@@ -1061,6 +1061,18 @@ export async function fetchArchiveSubmissions(): Promise<{ submissions: ArchiveS
 export function archivePdfUrl(period: string, qrt: string): string {
   return `/api/demo/archive/pdf/${encodeURIComponent(period)}/${encodeURIComponent(qrt)}`;
 }
+
+export interface PeriodState {
+  today: string;
+  current_period: string;
+  current_period_end: string;
+  deadline: string;
+  business_days_to_deadline: number;
+  status: 'in_progress';
+}
+export async function fetchPeriodState(): Promise<PeriodState> {
+  return fetchJson('/api/demo/period-state');
+}
 export async function runOrsaStress(scenario_label: string, duration_years = 5): Promise<Row> {
   return postJson('/api/demo/orsa/run-stress', { scenario_label, duration_years });
 }

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
-  Loader2, CheckCircle2, AlertTriangle, XCircle, Clock, Activity, ShieldCheck, Bot,
+  Loader2, CheckCircle2, AlertTriangle, XCircle, Bot,
   Sparkles, Shield, ChevronDown, ChevronUp, BarChart3, Database, GitCompare, Workflow, Scale,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import Q4PainCallouts from '../components/Q4PainCallouts';
 import ControlTowerHero, { type HealthLevel } from '../components/ControlTowerHero';
-import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, fetchOverlays, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation } from '../lib/api';
+import ReadinessPanel from '../components/ReadinessPanel';
+import PipelinePanel from '../components/PipelinePanel';
+import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, fetchOverlays, fetchPeriodState, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation, type PeriodState } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
 import { ProcessOverview, DataInventory } from './Governance';
 
@@ -19,21 +20,35 @@ export default function Monitor({ initialTab = 'overview' }: { initialTab?: Moni
   const [dq, setDq] = useState<{ data: Row[]; aggregate: Row | null }>({ data: [], aggregate: null });
   const [recon, setRecon] = useState<Row[]>([]);
   const [pendingOverlays, setPendingOverlays] = useState<number>(0);
+  const [activeOverlays, setActiveOverlays] = useState<number>(0);
+  const [pendingApprovals, setPendingApprovals] = useState<number>(0);
+  const [periodState, setPeriodState] = useState<PeriodState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<MonitorTab>(initialTab);
-  const navigate = useNavigate();
 
   useEffect(() => {
     Promise.all([
       fetchSlaStatus().then((r) => setSla(r.data)),
       fetchDqSummary().then(setDq),
       fetchReconciliation().then((r) => setRecon(r.data)),
+      fetchPeriodState().then(setPeriodState).catch(() => undefined),
+      // Pending approvals = overlays awaiting + SF challenger if pending (count >= 0 derivable)
       fetchOverlays({ status: 'pending_approval' }).then((r) => setPendingOverlays(r.overlays.length)).catch(() => undefined),
     ])
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Once we know the current period, fetch quarter-active overlays + pending-approvals total
+  useEffect(() => {
+    if (!periodState) return;
+    fetchOverlays({ quarter: periodState.current_period }).then((r) => {
+      setActiveOverlays(r.overlays.filter((o) => o.status === 'approved').length);
+    }).catch(() => undefined);
+    // SF Challenger is a single pending sign-off if current_state is pending_approval (always true post-rebase)
+    setPendingApprovals(pendingOverlays + 1);
+  }, [periodState, pendingOverlays]);
 
   if (loading) {
     return (
@@ -67,39 +82,26 @@ export default function Monitor({ initialTab = 'overview' }: { initialTab?: Moni
     );
   }
 
-  const period = sla[0]?.reporting_period || 'Latest';
-  const feedsReceived = sla.filter((f) => f.status === 'on_time').length;
   const feedsLate = sla.filter((f) => f.status === 'late').length;
   const feedsMissing = sla.filter((f) => f.status === 'missing').length;
-  const totalFeeds = sla.length;
-  const allGreen = feedsLate === 0 && feedsMissing === 0;
-
   const agg = dq.aggregate;
-  const passRate = agg?.overall_pass_rate || '100.0';
   const totalFailing = parseInt(agg?.total_failing || '0');
-  const reconMatches = recon.filter((r) => r.status === 'MATCH').length;
-  const reconTotal = recon.length;
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-4">
-      {/* Hero strip — quarter, deadline, traffic-light health, KPI summary */}
-      {(() => {
+      {/* Hero strip — quarter, deadline, traffic-light health, three meaningful KPIs */}
+      {periodState && (() => {
         const reconMismatches = recon.filter((r) => r.status !== 'MATCH').length;
-        const fired = (feedsLate + feedsMissing) + (totalFailing > 0 ? 1 : 0) + (reconMismatches > 0 ? 1 : 0) + (pendingOverlays > 0 ? 1 : 0);
+        const fired = (feedsLate + feedsMissing) + (totalFailing > 0 ? 1 : 0) + (reconMismatches > 0 ? 1 : 0) + (pendingApprovals > 0 ? 1 : 0);
         const health: HealthLevel = fired === 0 ? 'green' : (feedsLate > 0 || reconMismatches > 0) ? 'amber' : 'amber';
         return (
           <ControlTowerHero
-            period={period}
-            submissionDeadline="2026-02-22"
+            period={periodState.current_period}
+            deadline={periodState.deadline}
+            businessDaysToDeadline={periodState.business_days_to_deadline}
             health={health}
-            feedsReceived={feedsReceived}
-            feedsTotal={totalFeeds}
-            feedsLate={feedsLate + feedsMissing}
-            dqPassRate={parseFloat(String(passRate))}
-            quarantinedRows={totalFailing}
-            reconMismatches={reconMismatches}
-            reconTotal={reconTotal}
-            pendingOverlays={pendingOverlays}
+            pendingApprovals={pendingApprovals}
+            activeOverlays={activeOverlays}
           />
         );
       })()}
@@ -107,7 +109,6 @@ export default function Monitor({ initialTab = 'overview' }: { initialTab?: Moni
       <div className="flex items-baseline gap-3">
         <h2 className="text-lg font-bold text-gray-900">Control Tower</h2>
         <p className="text-xs text-gray-500">Bricksurance SE · Composite (P&amp;C + Life)</p>
-        <span className="ml-auto text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Unity Catalog</span>
       </div>
 
       {/* Tab strip */}
@@ -124,12 +125,10 @@ export default function Monitor({ initialTab = 'overview' }: { initialTab?: Moni
           {/* Q4 attention items — surfaces the 6 engineered Q4 2025 pains */}
           <Q4PainCallouts />
 
-          <div className="grid grid-cols-4 gap-4">
-            <KpiCard icon={Activity} label="Feeds Received" value={`${feedsReceived}/${totalFeeds}`} color={allGreen ? 'green' : 'amber'} onClick={() => setTab('ingestion')} />
-            <KpiCard icon={ShieldCheck} label="DQ Pass Rate" value={`${passRate}%`} color={parseFloat(String(passRate)) >= 99 ? 'green' : 'amber'} onClick={() => navigate('/data-quality')} />
-            <KpiCard icon={CheckCircle2} label="Reconciliation" value={`${reconMatches}/${reconTotal} Match`} color={reconMatches === reconTotal ? 'green' : 'amber'} onClick={() => setTab('reconciliation')} />
-            <KpiCard icon={Clock} label="Quarantined Rows" value={String(totalFailing)} color={totalFailing === 0 ? 'green' : totalFailing < 50 ? 'amber' : 'red'} onClick={() => navigate('/data-quality')} />
-          </div>
+          {/* KPIs moved into the hero strip above. The overview tab now shows
+              the per-QRT readiness panel + reporting pipeline panel. */}
+          <ReadinessPanel />
+          <PipelinePanel />
         </div>
       )}
 
@@ -775,3 +774,9 @@ function ReconDetailPanel({ check }: { check: Row }) {
     </div>
   );
 }
+
+
+// Components no longer used directly on Monitor — kept for now to avoid cascading edits.
+// Will be deleted in a polish pass.
+void KpiCard;
+
