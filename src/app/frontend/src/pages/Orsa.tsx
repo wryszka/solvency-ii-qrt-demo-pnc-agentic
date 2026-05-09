@@ -14,10 +14,12 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Workflow, AlertTriangle, Sparkles, Loader2, Play, RefreshCw,
+  Workflow, AlertTriangle, Sparkles, Loader2, Play, RefreshCw, CheckCircle2, FileText,
 } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
 import { Skeleton } from '../components/Skeleton';
+import CapitalPathChart from '../components/CapitalPathChart';
+import { useStreamedText } from '../lib/hooks/useStreamedText';
 import {
   fetchOrsaScenarios, runOrsaScenario, generateOrsaNarrative, fetchOrsaNarratives,
   type OrsaScenario, type OrsaRun, type OrsaResultRow, type OrsaNarrative,
@@ -97,8 +99,17 @@ export default function Orsa() {
     setRunning(true);
     setError(null);
     setNarratives([]);
+    setRun(null);                          // clear previous chart so the new one animates from scratch
+    const startedAt = Date.now();
     try {
       const r = await runOrsaScenario(selected);
+      // Hold the live progress panel visible long enough for the audience to read it
+      // (~18s minimum: 5 stages × ~3.5s each).
+      const elapsed = Date.now() - startedAt;
+      const HOLD_MS = 18_000;
+      if (elapsed < HOLD_MS) {
+        await new Promise((res) => window.setTimeout(res, HOLD_MS - elapsed));
+      }
       setRun(r);
       const narr = await fetchOrsaNarratives(r.run_id);
       setNarratives(narr.narratives);
@@ -205,14 +216,31 @@ export default function Orsa() {
         </div>
       </section>
 
+      {/* Live progress while running */}
+      {running && (
+        <section className="bg-white rounded-lg border border-green-200 overflow-hidden">
+          <header className="px-4 py-3 bg-gradient-to-r from-green-50 to-white border-b border-green-200">
+            <h3 className="text-sm font-bold text-green-900">Running scenario · live progress</h3>
+          </header>
+          <div className="p-4 space-y-2">
+            <RunStage label="Setting up the model" delay={0} />
+            <RunStage label="Applying scenario shocks to sub-modules" delay={3000} />
+            <RunStage label="Re-aggregating BSCR via correlation matrix" delay={6500} />
+            <RunStage label="Projecting capital path · 3 years forward" delay={11000} />
+            <RunStage label="Persisting results to gold_orsa_results" delay={15500} />
+          </div>
+        </section>
+      )}
+
       {/* Capital path */}
       {projection.length > 0 && (
         <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <header className="px-4 py-3 bg-gradient-to-r from-green-50 to-white border-b border-green-200">
-            <h3 className="text-sm font-bold text-green-900">2. Solvency ratio path — base vs scenario</h3>
+          <header className="px-4 py-3 bg-gradient-to-r from-green-50 to-white border-b border-green-200 flex items-center gap-2">
+            <h3 className="text-sm font-bold text-green-900">Solvency ratio path · base vs scenario</h3>
+            {run && <span className="ml-auto text-[11px] text-gray-500 font-mono">{run.scenario_name}</span>}
           </header>
           <div className="p-4">
-            <CapitalPathBars points={projection} />
+            <CapitalPathChart points={projection} scenarioLabel={run?.scenario_name ?? 'Stress'} />
           </div>
         </section>
       )}
@@ -249,16 +277,8 @@ export default function Orsa() {
                 Click "Generate narrative" to draft the Board-facing commentary for this scenario.
               </div>
             )}
-            {narratives.map((n) => (
-              <article key={n.narrative_id} className="border border-gray-200 rounded-md p-3 bg-white">
-                <header className="flex items-center justify-between text-[11px] text-gray-500 mb-2">
-                  <span>v{n.version} · {n.model_used}</span>
-                  <span>{n.input_tokens + n.output_tokens} tokens</span>
-                </header>
-                <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                  {n.narrative_text}
-                </div>
-              </article>
+            {narratives.map((n, idx) => (
+              <NarrativeCard key={n.narrative_id} narrative={n} streamLatest={idx === 0} />
             ))}
           </div>
         </section>
@@ -274,46 +294,56 @@ export default function Orsa() {
   );
 }
 
-function CapitalPathBars({ points }: { points: ProjectionPoint[] }) {
-  const maxRatio = Math.max(200, ...points.flatMap((p) => [p.baseRatio, p.scenarioRatio]));
+function RunStage({ label, delay }: { label: string; delay: number }) {
+  const [stage, setStage] = useState<'pending' | 'active' | 'done'>('pending');
+  useEffect(() => {
+    const a = window.setTimeout(() => setStage('active'), delay);
+    const b = window.setTimeout(() => setStage('done'), delay + 2200);
+    return () => { window.clearTimeout(a); window.clearTimeout(b); };
+  }, [delay]);
   return (
-    <div className="space-y-3">
-      {points.map((p) => (
-        <div key={p.yearOffset} className="text-xs">
-          <div className="flex justify-between mb-1">
-            <span className="font-mono text-gray-700">
-              {p.yearOffset === 0 ? 'year 0 (base)' : `year +${p.yearOffset} (${p.projectionYear})`}
-            </span>
-            <span className="text-gray-500">
-              <span className="text-gray-700 font-medium">{p.baseRatio}%</span>
-              {' → '}
-              <span className={p.scenarioRatio < 100 ? 'text-red-700 font-semibold' : p.scenarioRatio < 130 ? 'text-amber-700 font-semibold' : 'text-green-700 font-semibold'}>
-                {p.scenarioRatio}%
-              </span>
-            </span>
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] w-16 text-gray-500">base</span>
-              <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
-                <div className="h-full bg-blue-500" style={{ width: `${(p.baseRatio / maxRatio) * 100}%` }} />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] w-16 text-gray-500">scenario</span>
-              <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
-                <div className={`h-full ${p.scenarioRatio < 100 ? 'bg-red-500' : p.scenarioRatio < 130 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                     style={{ width: `${(p.scenarioRatio / maxRatio) * 100}%` }} />
-              </div>
-            </div>
-          </div>
+    <div className="flex items-center gap-2.5 text-sm">
+      {stage === 'pending' && <div className="w-4 h-4 rounded-full border-2 border-gray-200" />}
+      {stage === 'active' && <Loader2 className="w-4 h-4 animate-spin text-green-700" />}
+      {stage === 'done' && (
+        <div className="w-4 h-4 rounded-full bg-green-700 flex items-center justify-center">
+          <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
-      ))}
-      <div className="text-[11px] text-gray-400 italic mt-2">
-        Solvency ratio = eligible own funds ÷ SCR. Coverage of own funds is held flat in this projection;
-        SCR moves with module growth + scenario shock.
-      </div>
+      )}
+      <span className={stage === 'pending' ? 'text-gray-400' : stage === 'active' ? 'text-green-800 font-semibold' : 'text-gray-700'}>
+        {label}
+      </span>
     </div>
+  );
+}
+
+function NarrativeCard({ narrative: n, streamLatest }: { narrative: OrsaNarrative; streamLatest: boolean }) {
+  const { text: streamed, done } = useStreamedText(n.narrative_text, {
+    enabled: streamLatest,
+    charsPerTick: 6, tickMs: 14,
+  });
+  return (
+    <article className="border border-gray-200 rounded-md p-4 bg-white">
+      <header className="flex items-center justify-between text-[11px] text-gray-500 mb-2 gap-2">
+        <span className="inline-flex items-center gap-1.5">
+          <FileText className="w-3 h-3" />
+          <span className="font-mono">v{n.version}</span>
+          <span className="text-gray-300">·</span>
+          <span>{n.model_used}</span>
+        </span>
+        {done && (
+          <span className="inline-flex items-center gap-1 text-emerald-700 text-[10px] uppercase tracking-wide font-semibold">
+            <CheckCircle2 className="w-3 h-3" /> saved · gold_orsa_narratives
+          </span>
+        )}
+      </header>
+      <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed prose prose-sm max-w-none">
+        {streamed}
+        {!done && <span className="inline-block w-2 h-4 bg-green-700 align-middle ml-0.5 animate-pulse" />}
+      </div>
+    </article>
   );
 }
 

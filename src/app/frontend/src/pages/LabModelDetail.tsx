@@ -129,7 +129,7 @@ export default function LabModelDetail() {
       </div>
 
       {(detail.model_id === 'reserving_pnc' || detail.model_id === 'reserving_life') && (
-        <SeniorReservingPanel />
+        <SeniorReservingPanel modelId={detail.model_id} />
       )}
 
       {tab === 'versions' && <VersionsTab detail={detail} />}

@@ -7,7 +7,8 @@ import { useNavigate } from 'react-router-dom';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import Q4PainCallouts from '../components/Q4PainCallouts';
-import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation } from '../lib/api';
+import ControlTowerHero, { type HealthLevel } from '../components/ControlTowerHero';
+import { fetchSlaStatus, fetchDqSummary, fetchReconciliation, generateCrossQrtReview, fetchFeedDetail, investigateRecon, fetchOverlays, formatEur, type Row, type CrossQrtReviewResponse, type FeedDetail, type ReconInvestigation } from '../lib/api';
 import { renderMarkdownSafe } from '../lib/markdown';
 import { ProcessOverview, DataInventory } from './Governance';
 
@@ -17,6 +18,7 @@ export default function Monitor() {
   const [sla, setSla] = useState<Row[]>([]);
   const [dq, setDq] = useState<{ data: Row[]; aggregate: Row | null }>({ data: [], aggregate: null });
   const [recon, setRecon] = useState<Row[]>([]);
+  const [pendingOverlays, setPendingOverlays] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<MonitorTab>('overview');
@@ -27,6 +29,7 @@ export default function Monitor() {
       fetchSlaStatus().then((r) => setSla(r.data)),
       fetchDqSummary().then(setDq),
       fetchReconciliation().then((r) => setRecon(r.data)),
+      fetchOverlays({ status: 'pending_approval' }).then((r) => setPendingOverlays(r.overlays.length)).catch(() => undefined),
     ])
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -79,23 +82,32 @@ export default function Monitor() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Control Tower</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            {period} Reporting Cycle — Bricksurance SE
-            <span className="ml-2 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Unity Catalog</span>
-          </p>
-        </div>
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
-          allGreen
-            ? 'bg-green-50 text-green-700 border border-green-200'
-            : 'bg-amber-50 text-amber-700 border border-amber-200'
-        }`}>
-          {allGreen ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-          {allGreen ? 'All Feeds Received' : `${feedsLate + feedsMissing} Issue${feedsLate + feedsMissing > 1 ? 's' : ''}`}
-        </div>
+      {/* Hero strip — quarter, deadline, traffic-light health, KPI summary */}
+      {(() => {
+        const reconMismatches = recon.filter((r) => r.status !== 'MATCH').length;
+        const fired = (feedsLate + feedsMissing) + (totalFailing > 0 ? 1 : 0) + (reconMismatches > 0 ? 1 : 0) + (pendingOverlays > 0 ? 1 : 0);
+        const health: HealthLevel = fired === 0 ? 'green' : (feedsLate > 0 || reconMismatches > 0) ? 'amber' : 'amber';
+        return (
+          <ControlTowerHero
+            period={period}
+            submissionDeadline="2026-02-22"
+            health={health}
+            feedsReceived={feedsReceived}
+            feedsTotal={totalFeeds}
+            feedsLate={feedsLate + feedsMissing}
+            dqPassRate={parseFloat(String(passRate))}
+            quarantinedRows={totalFailing}
+            reconMismatches={reconMismatches}
+            reconTotal={reconTotal}
+            pendingOverlays={pendingOverlays}
+          />
+        );
+      })()}
+
+      <div className="flex items-baseline gap-3">
+        <h2 className="text-lg font-bold text-gray-900">Control Tower</h2>
+        <p className="text-xs text-gray-500">Bricksurance SE · Composite (P&amp;C + Life)</p>
+        <span className="ml-auto text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Powered by Databricks Unity Catalog</span>
       </div>
 
       {/* Tab strip */}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { fetchAuditPanel, type AuditPanelData } from '../lib/api';
+import LineageGraph from './LineageGraph';
 
 type Tab = 'data' | 'code' | 'models' | 'approvals' | 'lineage';
 
@@ -286,68 +287,18 @@ function ApprovalsOverlaysTab({ d }: { d: AuditPanelData }) {
 }
 
 function LineageTab({ d }: { d: AuditPanelData }) {
-  // Simple visual chain: bronze/silver source → models → QRT
-  const sources = d.lineage.source_tables;
-  const layered: Record<string, typeof sources> = {};
-  for (const s of sources) (layered[s.layer] ??= []).push(s);
-
   return (
-    <div className="space-y-4">
-      <section className="bg-white border border-gray-200 rounded-lg p-4">
-        <h4 className="text-sm font-semibold text-gray-900">Dependency graph</h4>
-        <p className="text-xs text-gray-500 mt-0.5 mb-4">
-          Curated lineage map: where the values in <code className="bg-gray-100 px-1 rounded text-[11px]">{d.lineage.qrt_table}</code> come from.
-        </p>
-
-        <div className="grid grid-cols-3 gap-3">
-          <LineageColumn title="Sources">
-            {Object.entries(layered).map(([layer, items]) => (
-              <div key={layer} className="mb-2">
-                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">{layer}</div>
-                {items.map((s, i) => (
-                  <div key={i} className={`text-[11px] font-mono px-2 py-1 mb-1 rounded ${
-                    s.layer === 'bronze' ? 'bg-orange-50 text-orange-800 border border-orange-200' :
-                    s.layer === 'silver' ? 'bg-slate-50 text-slate-700 border border-slate-200' :
-                    s.layer === 'engine' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
-                    'bg-blue-50 text-blue-700 border border-blue-200'
-                  }`}>{s.name}</div>
-                ))}
-              </div>
-            ))}
-          </LineageColumn>
-
-          <LineageColumn title="Models">
-            {d.lineage.produced_by.length === 0 ? (
-              <div className="text-[11px] text-gray-500 italic">no models in path</div>
-            ) : (
-              d.lineage.produced_by.map((m) => (
-                <Link key={m} to={`/lab/${m}`}
-                  className="block text-[11px] font-mono px-2 py-1 mb-1 rounded bg-violet-50 text-violet-800 border border-violet-200 hover:bg-violet-100">
-                  {m}
-                </Link>
-              ))
-            )}
-          </LineageColumn>
-
-          <LineageColumn title="QRT output">
-            <div className="text-[11px] font-mono px-2 py-1 mb-1 rounded bg-amber-50 text-amber-800 border border-amber-200 font-semibold">
-              {d.lineage.qrt_table}
-            </div>
-            <div className="text-[11px] font-mono px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200">
-              {d.lineage.summary_table}
-            </div>
-          </LineageColumn>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function LineageColumn({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wide text-gray-600 font-bold mb-2">{title}</div>
-      {children}
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500">
+        Curated lineage map: where the values in <code className="bg-gray-100 px-1 rounded text-[11px]">{d.lineage.qrt_table}</code> come from.
+        Hover any node to highlight its dependencies; click a model to open its Lab detail page.
+      </p>
+      <LineageGraph
+        sources={d.lineage.source_tables}
+        models={d.lineage.produced_by}
+        qrtTable={d.lineage.qrt_table}
+        summaryTable={d.lineage.summary_table}
+      />
     </div>
   );
 }
