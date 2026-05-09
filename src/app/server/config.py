@@ -79,6 +79,11 @@ def fqn(table: str) -> str:
 
 # ── Optional configuration ───────────────────────────────────────────────────
 
+# Dashboard + Genie space IDs are workspace-specific. They flow from
+# databricks.yml variables → app.yaml ${var.X} substitution → env vars at app
+# runtime. deploy_demo.sh creates these resources on a fresh workspace and
+# overrides the bundle vars so the app gets the correct IDs without any
+# manual editing.
 def get_dashboard_id() -> str:
     return os.getenv("DASHBOARD_ID", "").strip()
 

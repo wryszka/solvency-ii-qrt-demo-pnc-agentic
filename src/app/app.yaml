@@ -1,15 +1,17 @@
 command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 env:
   - name: CATALOG_NAME
-    value: "lr_serverless_aws_us_catalog"
+    value: ${var.catalog_name}
   - name: SCHEMA_NAME
-    value: "solvency2demo_agentic"
+    value: ${var.schema_name}
   - name: WAREHOUSE_ID
-    value: "ab79eced8207d29b"
+    value: ${var.warehouse_id}
+  - name: APP_DISPLAY_NAME
+    value: ${var.app_display_name}
   - name: DASHBOARD_ID
-    value: "01f128f6dc951605aca6caa3ec26edb3"
+    value: ${var.dashboard_id}
   - name: GENIE_SPACE_ID
-    value: "01f128fe84201b87ae7c04614b375d6c"
+    value: ${var.genie_space_id}
   - name: AI_GATEWAY_ENDPOINT
     value: ""
   - name: MLFLOW_TRACKING_URI

@@ -370,6 +370,23 @@ model_name = f"{catalog}.{schema}.standard_formula"
 
 mlflow.set_registry_uri("databricks-uc")
 
+# Idempotency check — skip the entire registration if v1+v2 already exist
+# with Champion + Challenger aliases. Re-running this notebook on a workspace
+# with the model already in place must not accumulate new versions.
+from mlflow import MlflowClient as _MlflowClient
+try:
+    _client = _MlflowClient(registry_uri="databricks-uc")
+    _existing = _client.search_model_versions(f"name='{model_name}'")
+    _aliases_seen = set()
+    for v in _existing:
+        for a in (v.aliases or []):
+            _aliases_seen.add(a)
+    if len(_existing) >= 2 and "Champion" in _aliases_seen and "Challenger" in _aliases_seen:
+        print(f"✓ {model_name} already has {len(_existing)} versions with Champion + Challenger aliases — skipping registration")
+        dbutils.notebook.exit("ALREADY_REGISTERED")
+except Exception as _e:
+    print(f"  (idempotency check skipped: {_e})")
+
 # COMMAND ----------
 
 # MAGIC %md

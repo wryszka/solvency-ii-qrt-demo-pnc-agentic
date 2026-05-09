@@ -8,9 +8,9 @@
 
 set -uo pipefail
 
-PROFILE="DEV"
-APP_NAME="solvency2-qrt-ai-dev"
-PERIOD="2025-Q4"
+PROFILE="${DATABRICKS_PROFILE:-DEV}"
+APP_NAME="${APP_NAME:-solvency2-qrt-ai-dev}"
+PERIOD="${PERIOD:-2025-Q4}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

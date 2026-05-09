@@ -1,44 +1,81 @@
 bundle:
   name: solvency-ii-qrt-demo
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Variables — single source of truth.
+#
+# Every catalog, schema, warehouse, app name, model URI, volume, and entity
+# constant lives here. Bundle resources, deploy scripts, app config, and
+# notebooks read from these via `${var.X}`. To target a different workspace,
+# override per-target below or pass --var on `databricks bundle` commands.
+#
+# Defaults are dev-friendly. They reference the FE-DEV workspace because that
+# is where the live demo runs. Each is freely overridable on a clean clone.
+# ──────────────────────────────────────────────────────────────────────────────
+
 variables:
+  # — Catalog + schema —
   catalog_name:
-    description: Unity Catalog name for all demo tables
-    default: main
+    description: Unity Catalog for all demo tables
+    default: lr_dev_aws_us_catalog
   schema_name:
-    description: Schema name for all demo tables (single schema design)
-    default: solvency2demo
+    description: Schema for all demo tables (single schema design)
+    default: solvency2demo_v2
+
+  # — Compute —
+  warehouse_id:
+    description: SQL warehouse for app + scripts. Override per workspace.
+    default: a3b61648ea4809e3
+
+  # — App identity —
+  app_name:
+    description: Databricks Apps resource name (URL slug)
+    default: actuarial-workbench-dev
+  app_display_name:
+    description: User-visible app display name in browser title + sidebar
+    default: Actuarial Workbench
+
+  # — Reporting context —
+  reporting_year:
+    description: Solvency II reporting year (used to anchor demo state)
+    default: "2026"
   reporting_date:
     description: Solvency II reporting reference date (YYYY-MM-DD)
     default: "2025-12-31"
-  entity_lei:
-    description: LEI of the reporting undertaking (synthetic)
-    default: "5493001KJTIIGC8Y1R12"
+
+  # — Synthetic undertaking metadata —
   entity_name:
     description: Name of the reporting undertaking (synthetic)
     default: "Bricksurance SE"
+  entity_lei:
+    description: LEI of the reporting undertaking (synthetic)
+    default: "5493001KJTIIGC8Y1R12"
   entity_type:
-    description: Insurer type — composite (life + non-life on one balance sheet), nonlife, or life
+    description: Insurer type — composite, nonlife, or life
     default: "composite"
+
+  # — Runtime-discovered resource IDs —
+  # Populated by deploy_demo.sh via `--var` overrides after dashboard /
+  # Genie space create. Empty defaults so the bundle still deploys without
+  # them; the app gracefully degrades if they're missing.
+  dashboard_id:
+    description: Lakeview dashboard UUID (set by deploy_demo.sh)
+    default: ""
+  genie_space_id:
+    description: Genie space UUID (set by deploy_demo.sh)
+    default: ""
+
+  # — Workspace / auth —
   workspace_host:
-    description: Databricks workspace URL — override per-target
-    default: "https://fevm-lr-serverless-aws-us.cloud.databricks.com"
+    description: Databricks workspace URL — override per target
+    default: "https://fevm-lr-dev-aws-us.cloud.databricks.com"
   databricks_profile:
     description: Databricks CLI profile to use for deploys
-    default: "DEFAULT"
+    default: "DEV"
 
 workspace:
   host: ${var.workspace_host}
   profile: ${var.databricks_profile}
-
-# ──────────────────────────────────────────────────────────────────────────────
-# CATALOG: To use a different catalog, change the default above (line 7)
-#          and/or override per target below. The setup notebook will attempt
-#          CREATE CATALOG IF NOT EXISTS — if that fails (no permission), it
-#          falls back to assuming the catalog already exists.
-#
-# WORKSPACE: Change the host/profile below to point to your workspace.
-# ──────────────────────────────────────────────────────────────────────────────
 
 sync:
   exclude:
@@ -49,20 +86,33 @@ sync:
 
 targets:
   dev:
-    # The original FEVM serverless target — kept frozen for the live demo
+    # Original FEVM serverless target — kept for backward compat
     mode: development
-    default: true
+    workspace:
+      host: https://fevm-lr-serverless-aws-us.cloud.databricks.com
+      profile: DEFAULT
+    variables:
+      catalog_name: lr_serverless_aws_us_catalog
+      schema_name: solvency2demo_agentic
+      warehouse_id: ab79eced8207d29b
+      app_name: solvency2-qrt-ai
+      app_display_name: Actuarial Workbench
+      workspace_host: https://fevm-lr-serverless-aws-us.cloud.databricks.com
+      databricks_profile: DEFAULT
 
   dev_v2:
-    # New "next-gen" composite-insurer target on the FE dev workspace.
-    # Uses lr_dev_aws_us_catalog and a fresh schema so it cannot collide with dev.
+    # Active forum-talk dev target — composite insurer on FE dev workspace
     mode: development
+    default: true
     workspace:
       host: https://fevm-lr-dev-aws-us.cloud.databricks.com
       profile: DEV
     variables:
       catalog_name: lr_dev_aws_us_catalog
       schema_name: solvency2demo_v2
+      warehouse_id: a3b61648ea4809e3
+      app_name: solvency2-qrt-ai-dev
+      app_display_name: Actuarial Workbench
       workspace_host: https://fevm-lr-dev-aws-us.cloud.databricks.com
       databricks_profile: DEV
       entity_type: composite

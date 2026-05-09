@@ -33,6 +33,8 @@ import Learn from './pages/Learn';
 import Whatif from './pages/Whatif';
 import FeedDetail from './pages/FeedDetail';
 import OrsaDraft from './pages/OrsaDraft';
+import Workbench from './pages/Workbench';
+import RoadmapStub from './pages/RoadmapStub';
 import Breadcrumb from './components/Breadcrumb';
 import ResetDemoButton from './components/ResetDemoButton';
 import DemoModeToggle from './components/DemoModeToggle';
@@ -149,11 +151,11 @@ function DoorRow({ door }: { door: DoorLink }) {
 function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-[268px] bg-[#1e293b] text-white flex flex-col">
-      {/* Brand */}
+      {/* Brand — links back to the Workbench (top-level /) */}
       <Link to="/" className="flex items-center gap-3 px-4 py-3.5 border-b border-white/10 hover:opacity-90 transition-opacity">
         <FileText className="w-5 h-5 text-blue-400 shrink-0" />
         <div className="min-w-0">
-          <h1 className="text-base font-bold tracking-tight truncate">Solvency II</h1>
+          <h1 className="text-base font-bold tracking-tight truncate">Actuarial Workbench</h1>
           <p className="text-[10px] text-gray-400 truncate">Bricksurance SE — Composite</p>
         </div>
       </Link>
@@ -268,8 +270,12 @@ export default function App() {
         <main className="ml-[268px]">
           <BreadcrumbStrip />
           <Routes>
-            {/* Doors — primary entry points */}
-            <Route path="/" element={<Landing />} />
+            {/* Workbench top-level — six tiles, Solvency II is the live one */}
+            <Route path="/" element={<Workbench />} />
+            <Route path="/solvency-2"       element={<Landing />} />
+            <Route path="/roadmap/:slug"    element={<RoadmapStub />} />
+
+            {/* Solvency II surface — top-level routes preserved so existing links + breadcrumbs keep working */}
             <Route path="/today"            element={<Today />} />
             <Route path="/reporting-cycle"  element={<ReportingCycle />} />
             <Route path="/learn"            element={<Learn />} />

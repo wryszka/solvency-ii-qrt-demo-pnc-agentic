@@ -107,19 +107,31 @@ async def sf_challenger_promote(req: PromoteRequest, request: Request):
         ],
     )
 
-    # Flip the MLflow production alias from v1 → v2
+    # Flip the MLflow alias: whatever's currently @Challenger becomes @Champion +
+    # @production; whatever was @Champion previously becomes @archive. No version
+    # literals in this code — re-running register notebooks does not break promote.
     try:
         from server.config import get_workspace_client, get_catalog, get_schema
         client = get_workspace_client()
         full = f"{get_catalog()}.{get_schema()}.standard_formula"
-        await asyncio.to_thread(
-            client.registered_models.set_alias,
-            full_name=full, alias="production", version_num=2,
-        )
-        await asyncio.to_thread(
-            client.registered_models.set_alias,
-            full_name=full, alias="archive", version_num=1,
-        )
+        rm = await asyncio.to_thread(client.registered_models.get, full_name=full, include_aliases=True)
+        aliases = {a.alias_name.lower(): str(a.version_num) for a in (rm.aliases or [])}
+        challenger_v = aliases.get("challenger") or aliases.get("candidate")
+        champion_v = aliases.get("champion") or aliases.get("production")
+        if challenger_v:
+            await asyncio.to_thread(
+                client.registered_models.set_alias,
+                full_name=full, alias="production", version_num=int(challenger_v),
+            )
+            await asyncio.to_thread(
+                client.registered_models.set_alias,
+                full_name=full, alias="Champion", version_num=int(challenger_v),
+            )
+        if champion_v and champion_v != challenger_v:
+            await asyncio.to_thread(
+                client.registered_models.set_alias,
+                full_name=full, alias="archive", version_num=int(champion_v),
+            )
     except Exception as exc:
         logger.warning("MLflow alias flip failed (continuing): %s", exc)
 
@@ -958,9 +970,21 @@ async def reset_demo(request: Request):
         from server.config import get_workspace_client, get_catalog, get_schema
         client = get_workspace_client()
         full = f"{get_catalog()}.{get_schema()}.standard_formula"
-        await asyncio.to_thread(client.registered_models.set_alias, full_name=full, alias="production", version_num=1)
-        await asyncio.to_thread(client.registered_models.set_alias, full_name=full, alias="candidate",  version_num=2)
-        actions.append("MLflow aliases rewound (production=v1, candidate=v2)")
+        # Rewind aliases to their pre-promote position. Find the lowest +
+        # highest version numbers; lowest → production, highest → candidate.
+        # Avoids version literals so re-running register notebooks doesn't break this.
+        rm = await asyncio.to_thread(client.registered_models.get, full_name=full, include_aliases=True)
+        versions = await asyncio.to_thread(client.model_versions.list, full_name=full)
+        version_nums = sorted(int(v.version) for v in versions)
+        if len(version_nums) >= 2:
+            base_v, candidate_v = version_nums[0], version_nums[-1]
+            await asyncio.to_thread(client.registered_models.set_alias, full_name=full, alias="production", version_num=base_v)
+            await asyncio.to_thread(client.registered_models.set_alias, full_name=full, alias="Champion",   version_num=base_v)
+            await asyncio.to_thread(client.registered_models.set_alias, full_name=full, alias="candidate",  version_num=candidate_v)
+            await asyncio.to_thread(client.registered_models.set_alias, full_name=full, alias="Challenger", version_num=candidate_v)
+            actions.append(f"MLflow aliases rewound (production=v{base_v}, candidate=v{candidate_v})")
+        else:
+            actions.append(f"MLflow rewind WARN: only {len(version_nums)} version(s) found, skipped")
     except Exception as exc:
         actions.append(f"MLflow rewind WARN: {exc}")
 
@@ -975,13 +999,15 @@ async def reset_demo(request: Request):
     except Exception as exc:
         actions.append(f"Promotion clean FAILED: {exc}")
 
-    # 4. Drop overlays created during the demo (keep the 3 baseline Q4 + 3 historical = 6)
+    # 4. Drop overlays created during the demo. The seeded baseline overlays
+    # carry the deterministic seed-author prefix; anything else was created
+    # interactively during the demo session and should be removed.
     try:
         await execute_query(
             f"DELETE FROM {fqn('6_gov_overlays')} "
-            "WHERE created_at > CAST('2026-01-15 00:00:00' AS TIMESTAMP)"
+            "WHERE author NOT LIKE 'senior.reserving.actuary@%'"
         )
-        actions.append("Demo-created overlays cleaned")
+        actions.append("Demo-created overlays cleaned (kept seeded baseline)")
     except Exception as exc:
         actions.append(f"Overlay clean FAILED: {exc}")
 

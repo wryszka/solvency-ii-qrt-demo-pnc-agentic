@@ -33,6 +33,31 @@ import tempfile
 
 mlflow.set_registry_uri("databricks-uc")
 
+# Idempotency: skip both registrations if both pyfunc models already have
+# 2+ versions with production + candidate aliases. The per-version registration
+# helper below also has its own per-calibration-label dedupe.
+def _models_already_registered() -> bool:
+    try:
+        client = MlflowClient(registry_uri="databricks-uc")
+        for m in [f"{catalog}.{schema}.reserving_pnc", f"{catalog}.{schema}.reserving_life"]:
+            versions = client.search_model_versions(f"name='{m}'")
+            if len(versions) < 2:
+                return False
+            aliases_seen = set()
+            for v in versions:
+                for a in (v.aliases or []):
+                    aliases_seen.add(a)
+            if "production" not in aliases_seen or "candidate" not in aliases_seen:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+if _models_already_registered():
+    print(f"✓ reserving_pnc + reserving_life already have production + candidate aliases — skipping")
+    dbutils.notebook.exit("ALREADY_REGISTERED")
+
 # COMMAND ----------
 
 # MAGIC %md

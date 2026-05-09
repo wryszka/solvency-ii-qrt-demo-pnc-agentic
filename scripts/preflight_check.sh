@@ -11,12 +11,16 @@
 
 set -uo pipefail
 
-PROFILE="DEV"
-CATALOG="lr_dev_aws_us_catalog"
-SCHEMA="solvency2demo_v2"
-WAREHOUSE_ID="a3b61648ea4809e3"
-APP_NAME="solvency2-qrt-ai-dev"
-PERIOD="2025-Q4"
+# Defaults are dev_v2-shaped. deploy_demo.sh exports overrides via env.
+# Pass --catalog / --schema / --warehouse / --app / --period to override
+# explicitly. Any env var (CATALOG, SCHEMA, etc.) takes precedence over
+# the bare defaults below.
+PROFILE="${DATABRICKS_PROFILE:-DEV}"
+CATALOG="${CATALOG:-lr_dev_aws_us_catalog}"
+SCHEMA="${SCHEMA:-solvency2demo_v2}"
+WAREHOUSE_ID="${WAREHOUSE_ID:-a3b61648ea4809e3}"
+APP_NAME="${APP_NAME:-solvency2-qrt-ai-dev}"
+PERIOD="${PERIOD:-2025-Q4}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
