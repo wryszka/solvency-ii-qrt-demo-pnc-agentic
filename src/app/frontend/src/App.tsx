@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import {
   Building2, FileText, Activity, ShieldCheck, Code2, Home,
-  Layers, Beaker, Compass, Sun, GraduationCap, BookOpen, CircleHelp, Workflow,
+  Layers, Beaker, Compass, GraduationCap, BookOpen, CircleHelp, Workflow,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Landing from './pages/Landing';
@@ -61,18 +61,14 @@ interface DoorLink {
 }
 
 const DOORS: DoorLink[] = [
-  { to: '/today',           icon: Sun,    label: 'Today',           tagline: 'Where are we now?', accent: 'amber' },
-  { to: '/reporting-cycle', icon: Layers, label: 'Reporting Cycle', tagline: 'Three pillars.',    accent: 'blue' },
+  { to: '/today',           icon: Activity, label: 'Control Tower',   tagline: 'Where are we now?', accent: 'amber' },
+  { to: '/reporting-cycle', icon: Layers,   label: 'Reporting Cycle', tagline: 'Three pillars.',    accent: 'blue' },
 ];
 
+// Home sits above the doors as a single solo row — primary orientation.
+const HOME_ENTRY: NavEntry = { to: '/', icon: Home, label: 'Home' };
+
 const NAV_SECTIONS: NavSection[] = [
-  {
-    heading: 'Today',
-    entries: [
-      { to: '/',              icon: Home,         label: 'Home' },
-      { to: '/monitor',       icon: Activity,     label: 'Control Tower' },
-    ],
-  },
   {
     heading: 'Actuarial Lab',
     entries: [
@@ -161,8 +157,13 @@ function Sidebar() {
         </div>
       </Link>
 
-      {/* Three doors — primary navigation */}
-      <div className="px-2 pt-3 pb-1 space-y-1">
+      {/* Home — solo at top */}
+      <div className="px-2 pt-3 pb-1">
+        <NavLink entry={HOME_ENTRY} />
+      </div>
+
+      {/* Primary doors */}
+      <div className="px-2 pt-1 pb-1 space-y-1">
         {DOORS.map((d) => <DoorRow key={d.to} door={d} />)}
       </div>
 
