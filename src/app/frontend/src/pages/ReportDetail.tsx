@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import AuditPanel from '../components/AuditPanel';
+import ArtefactConnectionsPanel from '../components/ArtefactConnectionsPanel';
+import SCRImpactPanel from '../components/SCRImpactPanel';
+import ArtefactImpactPanel from '../components/ArtefactImpactPanel';
 import {
   fetchContent, fetchQuality, fetchComparison, fetchLineage, fetchApproval,
   submitForReview, reviewApproval, generateCertificate, downloadFile,
@@ -53,8 +56,11 @@ export default function ReportDetail() {
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-4">
       <div className="flex items-center gap-3">
-        <Link to="/" className="p-1.5 rounded-md hover:bg-gray-200 transition-colors text-gray-500">
+        <Link to="/reporting-cycle"
+          title="Back to Reporting Cycle"
+          className="p-1.5 rounded-md hover:bg-gray-200 transition-colors text-gray-500 inline-flex items-center gap-1">
           <ArrowLeft className="w-5 h-5" />
+          <span className="text-xs sr-only sm:not-sr-only sm:inline">Reporting Cycle</span>
         </Link>
         <div>
           <h2 className="text-2xl font-bold text-gray-900">{info.name} — {info.title}</h2>
@@ -112,12 +118,22 @@ function ContentTab({ qrtId }: { qrtId: string }) {
   const columns = Object.keys(rows[0]).filter((c) => !HIDDEN_COLS.has(c));
 
   // For S.05.01, render as pivot table
-  if (qrtId === 's0501') return <S0501Content rows={rows} qrtId={qrtId} />;
+  if (qrtId === 's0501') {
+    return (
+      <div className="space-y-4">
+        <ArtefactConnectionsPanel qrtId={qrtId} />
+        <S0501Content rows={rows} qrtId={qrtId} />
+        <ArtefactImpactPanel qrtId={qrtId} />
+      </div>
+    );
+  }
 
   const totalPages = data.total ? Math.ceil(data.total / (data.page_size || 100)) : 1;
   const showPager = qrtId === 's0602' && data.total && data.total > (data.page_size || 100);
 
   return (
+    <div className="space-y-4">
+      <ArtefactConnectionsPanel qrtId={qrtId} />
     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <span className="text-sm text-gray-500">
@@ -172,6 +188,9 @@ function ContentTab({ qrtId }: { qrtId: string }) {
           </div>
         </div>
       )}
+    </div>
+      {qrtId === 's2501' && <SCRImpactPanel />}
+      {qrtId !== 's2501' && <ArtefactImpactPanel qrtId={qrtId} />}
     </div>
   );
 }
