@@ -95,4 +95,41 @@ export const ROADMAP_CONTENT: Record<string, RoadmapEntry> = {
       { label: 'See the Senior Reserving Actuary agent', to: '/lab/reserving_pnc' },
     ],
   },
+
+  'sas-migration': {
+    what: "Worked example — translating an actuarial SAS code-base (reserving procedures, " +
+      "valuation routines, capital model logic) into PySpark / Spark SQL on the lakehouse. " +
+      "The same actuarial methods, but governed, parallelisable, and auditable. Bring your " +
+      "macros and DATA steps; leave with notebooks, MLflow-tracked models, and UC-managed " +
+      "tables that any other workflow on the platform can read.",
+    workbench_capabilities: [
+      "Reference notebooks that take a representative SAS reserving program (chain-ladder + BF on triangles, with judgemental adjustments) and walk through the line-by-line conversion to PySpark — assignment-by-assignment, with both versions runnable side by side for parity testing.",
+      "Pattern catalogue for the recurring SAS → PySpark conversions: DATA step → DataFrame transformation, PROC SQL → Spark SQL, PROC SUMMARY → groupBy, macro variables → notebook widgets, formats + informats → typed columns.",
+      "MLflow-tracked parity harness: each conversion ships with paired runs (SAS reference vs PySpark candidate) on the same input data, with row-level diff reports and tolerance checks. Once parity holds for N quarters, the SAS leg is retired.",
+      "UC governance from day one — the migrated routines land as pyfuncs in the Lab alongside reserving_pnc and standard_formula. Same Champion / Challenger flow, same diagnostics tab, same audit.",
+      "Cost + performance side-by-side: SAS run-time + licence cost vs serverless DLT run-time on the same workload. Headline of every migration page.",
+    ],
+    adjacent_links: [
+      { label: 'See the reserving model pattern (P&C)', to: '/lab/reserving_pnc' },
+      { label: 'See the worked-example notebooks (chain-ladder)', to: '/lab' },
+    ],
+  },
+
+  'excel-migration': {
+    what: "Worked example — lifting an actuarial Excel model (reserve roll-forward, capital " +
+      "model walk, valuation cashflow grid) into governed Delta tables + notebooks. The " +
+      "spreadsheet's intent is preserved; the calculation moves into the lakehouse where " +
+      "lineage, versioning, and the audit trail are first-class.",
+    workbench_capabilities: [
+      "Reference notebook that takes a representative actuarial Excel — a quarterly reserve roll-forward with linked SCR walk — and converts it: named ranges → typed columns, INDEX/MATCH + VLOOKUP → joins, array formulas → window functions, hidden tabs → intermediate Delta tables. Each step traces back to the original cell range.",
+      "Pattern catalogue for the common shapes: pivot tables → groupBy + pivot, dependent dropdowns → parameterised notebook widgets, conditional formatting → Lakeview dashboard visuals, what-if scenario manager → governed scenario table feeding a notebook re-run.",
+      "Snapshot + diff harness: every Excel-side recalculation is compared against the lakehouse-side run for the same period; row-level mismatches surface before the spreadsheet is retired. Parity must hold N quarters before the file is moved to read-only.",
+      "Replace email-shaped overlays with the Overlays Register: every manual cell adjustment becomes an auditable overlay with author + approver + rationale, hashed and linked to the cell it touches.",
+      "Output stays familiar — same numbers, same column layout, same sign-off chain — but now sits on UC with lineage, time-travel, and the AI agent layer reading from it.",
+    ],
+    adjacent_links: [
+      { label: 'See the Overlays Register pattern', to: '/overlays' },
+      { label: 'See the QRT audit panel (S.05.01)', to: '/report/s0501' },
+    ],
+  },
 };

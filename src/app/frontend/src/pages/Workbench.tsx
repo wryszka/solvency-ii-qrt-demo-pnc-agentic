@@ -1,11 +1,12 @@
 /**
  * Actuarial Workbench landing.
  *
- * Top-level / page. Six tiles — one live (Solvency II), five roadmap.
- * Clicking the live tile takes the user into the existing Solvency II
- * surface (Three Doors at /solvency-2). Roadmap tiles open a stub at
- * /roadmap/{slug} that describes the workflow + how it would extend the
- * workbench.
+ * Top-level / page. Tiles for each workflow that shares the lakehouse:
+ *   - 2 live (Solvency II + Pricing)
+ *   - 4 roadmap (IFRS 17 / Reinsurance / Claims analytics / Reserving deep-dive)
+ *   - 2 in-progress (SAS migration + Excel migration — worked examples being built)
+ * Live tiles open the running app; roadmap + in-progress tiles open a stub at
+ * /roadmap/{slug} that describes the workflow + how it would extend the workbench.
  *
  * Tile metadata lives in workbench-tiles.ts so adding a new tile is one file.
  */
@@ -72,6 +73,7 @@ export default function Workbench() {
 
 function TileCard({ tile, period }: { tile: Tile; period: string | null }) {
   const isLive = tile.status === 'live';
+  const isInProgress = tile.status === 'in_progress';
   const Icon = tile.icon;
   const isExternal = isLive && /^https?:\/\//.test(tile.to);
 
@@ -106,6 +108,34 @@ function TileCard({ tile, period }: { tile: Tile; period: string | null }) {
     return isExternal
       ? <a href={tile.to} target="_blank" rel="noopener noreferrer" className={containerCls}>{inner}</a>
       : <Link to={tile.to} className={containerCls}>{inner}</Link>;
+  }
+
+  if (isInProgress) {
+    // In-progress tile — warmer than roadmap, signals active build
+    return (
+      <Link to={tile.to}
+        className="block bg-white border-2 border-amber-300 rounded-2xl p-5 hover:shadow-lg hover:border-amber-400 hover:shadow-amber-100 transition-all flex flex-col group">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-12 h-12 rounded-xl bg-amber-100 group-hover:bg-amber-200 flex items-center justify-center transition-colors">
+            <Icon className="w-6 h-6 text-amber-700" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-xl font-bold text-amber-900 tracking-tight">{tile.label}</h3>
+              <span className="text-[10px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                in progress
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-700/80 mt-0.5">Worked example · being built</p>
+          </div>
+        </div>
+        <p className="text-sm text-gray-700 leading-relaxed flex-1">{tile.description}</p>
+        <div className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-amber-700">
+          Read more <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+        </div>
+      </Link>
+    );
   }
 
   // Roadmap tile — visually de-emphasised

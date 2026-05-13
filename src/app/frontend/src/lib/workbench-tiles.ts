@@ -11,9 +11,10 @@
  */
 import {
   Shield, TrendingUp, FileSpreadsheet, Network, AlertOctagon, BarChart3,
+  Code2, Table2,
 } from 'lucide-react';
 
-export type TileStatus = 'live' | 'roadmap';
+export type TileStatus = 'live' | 'in_progress' | 'roadmap';
 
 export interface Tile {
   slug: string;                    // URL slug + key
@@ -75,5 +76,21 @@ export const TILES: Tile[] = [
     status: 'roadmap',
     icon: BarChart3,
     to: '/roadmap/reserving-deep-dive',
+  },
+  {
+    slug: 'sas-migration',
+    label: 'SAS migration',
+    description: 'Worked example — moving an actuarial SAS code-base to PySpark / Spark SQL on the lakehouse. Reserving, capital, valuation procedures translated step by step.',
+    status: 'in_progress',
+    icon: Code2,
+    to: '/roadmap/sas-migration',
+  },
+  {
+    slug: 'excel-migration',
+    label: 'Excel migration',
+    description: 'Worked example — lifting an actuarial Excel model (reserve roll-forward, capital model, valuation chain) into governed Delta tables + notebooks with the audit trail intact.',
+    status: 'in_progress',
+    icon: Table2,
+    to: '/roadmap/excel-migration',
   },
 ];

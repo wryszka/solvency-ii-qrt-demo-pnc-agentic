@@ -27,6 +27,7 @@ export default function RoadmapStub() {
   }
 
   const Icon = tile.icon;
+  const isInProgress = tile.status === 'in_progress';
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-5">
@@ -35,17 +36,28 @@ export default function RoadmapStub() {
       </Link>
 
       <header className="flex items-start gap-4 border-b border-gray-200 pb-5">
-        <div className="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-          <Icon className="w-7 h-7 text-slate-600" />
+        <div className={`w-14 h-14 rounded-xl ${isInProgress ? 'bg-amber-100' : 'bg-slate-100'} flex items-center justify-center shrink-0`}>
+          <Icon className={`w-7 h-7 ${isInProgress ? 'text-amber-700' : 'text-slate-600'}`} />
         </div>
         <div className="flex-1 pt-1">
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold text-gray-900 tracking-tight">{tile.label}</h1>
-            <span className="text-[10px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 border border-slate-300">
-              coming soon
-            </span>
+            {isInProgress ? (
+              <span className="text-[10px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                in progress
+              </span>
+            ) : (
+              <span className="text-[10px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 border border-slate-300">
+                coming soon
+              </span>
+            )}
           </div>
-          <p className="text-sm text-gray-500 mt-1">Roadmap · same workbench, different workflow.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {isInProgress
+              ? 'Worked example · being built right now — drop in and follow the line-by-line conversion as it lands.'
+              : 'Roadmap · same workbench, different workflow.'}
+          </p>
         </div>
       </header>
 
