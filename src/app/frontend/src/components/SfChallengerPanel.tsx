@@ -7,10 +7,18 @@
  */
 import { useEffect, useState } from 'react';
 import { Loader2, Send, AlertTriangle, CheckCircle2, Mail, ArrowRight, UserCheck, Clock } from 'lucide-react';
-import { fetchSfChallenger, escalateSfChallenger, promoteSfChallenger, asArray, type DemoSfChallenger } from '../lib/api';
+import { fetchSfChallenger, fetchModelComparison, escalateSfChallenger, promoteSfChallenger, asArray, type DemoSfChallenger } from '../lib/api';
+
+interface LiveComparison {
+  scr_delta_pct: number;
+  ratio_before_pct?: number;
+  ratio_after_pct?: number;
+  source: string;
+}
 
 export default function SfChallengerPanel() {
   const [c, setC] = useState<DemoSfChallenger | null>(null);
+  const [live, setLive] = useState<LiveComparison | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,8 +26,30 @@ export default function SfChallengerPanel() {
   async function reload() {
     setLoading(true);
     try {
-      const r = await fetchSfChallenger();
+      const [r, cmp] = await Promise.all([
+        fetchSfChallenger(),
+        fetchModelComparison().catch(() => null),
+      ]);
       setC(r.challenger);
+      // Replace fixture numbers with the live UC-driven computation when available.
+      const ch = r.challenger;
+      if (ch && cmp && cmp.comparison && cmp.comparison.length) {
+        const scrRow = cmp.comparison.find((row: { component: string }) => row.component === 'SCR');
+        if (scrRow) {
+          // Holding eligible own funds steady, derive the post-stress ratio from
+          // the SCR uplift the engine returns. ratio_after = ratio_before × (1/(1+Δ)).
+          const before = Number(ch.ratio_before_pct);
+          const champ = Number(scrRow.champion_eur);
+          const chall = Number(scrRow.challenger_eur);
+          const after = champ > 0 && chall > 0 ? (before * champ) / chall : undefined;
+          setLive({
+            scr_delta_pct: Number(scrRow.delta_pct),
+            ratio_before_pct: before,
+            ratio_after_pct: after !== undefined ? Math.round(after * 10) / 10 : undefined,
+            source: '0_cfg_sf_calibrations + 2_stg_scr_results',
+          });
+        }
+      }
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
   }
@@ -84,17 +114,26 @@ export default function SfChallengerPanel() {
           </ul>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1">Impact analysis</div>
+          <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-1 flex items-center gap-1.5">
+            Impact analysis
+            {live && (
+              <span className="text-[9px] normal-case tracking-normal text-emerald-700 font-semibold inline-flex items-center gap-1">
+                · live: <code className="font-mono text-emerald-700">{live.source}</code>
+              </span>
+            )}
+          </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex items-baseline gap-2">
               <span className="text-gray-500 w-24">SCR delta</span>
-              <span className="font-mono font-bold text-rose-700">+{Number(c.scr_delta_pct).toFixed(1)}%</span>
+              <span className="font-mono font-bold text-rose-700">
+                +{Number(live?.scr_delta_pct ?? c.scr_delta_pct).toFixed(1)}%
+              </span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-gray-500 w-24">Solvency</span>
-              <span className="font-mono">{Number(c.ratio_before_pct).toFixed(0)}%</span>
+              <span className="font-mono">{Number(live?.ratio_before_pct ?? c.ratio_before_pct).toFixed(0)}%</span>
               <ArrowRight className="w-3 h-3 text-gray-400" />
-              <span className="font-mono font-bold text-amber-700">{Number(c.ratio_after_pct).toFixed(0)}%</span>
+              <span className="font-mono font-bold text-amber-700">{Number(live?.ratio_after_pct ?? c.ratio_after_pct).toFixed(0)}%</span>
             </div>
           </div>
         </div>
