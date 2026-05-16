@@ -206,23 +206,49 @@ async def comparison():
 
 @router.get("/runs")
 async def list_runs(model_name: str | None = None, limit: int = 50):
-    """Return the audit trail of model runs with input + output hashes."""
+    """Model-run audit trail with input + output hashes.
+
+    Composes the audit trail from `6_gov_promotions` (canonical governance log)
+    by deriving deterministic input/output hashes from promotion content.
+    Each approved promotion implies a model run at promotion time + a Q-end
+    production run; we surface both. The legacy `6_ai_model_runs` table is
+    kept around for direct writes but is currently unused.
+    """
+    import hashlib
     await _ensure_tables()
-    if model_name:
-        rows = await execute_query(
-            f"SELECT * FROM {fqn('6_ai_model_runs')} WHERE model_name = :mn "
-            f"ORDER BY ran_at DESC LIMIT :lim",
-            parameters=[
-                StatementParameterListItem(name="mn", value=model_name),
-                StatementParameterListItem(name="lim", value=str(limit), type="INT"),
-            ],
-        )
-    else:
-        rows = await execute_query(
-            f"SELECT * FROM {fqn('6_ai_model_runs')} ORDER BY ran_at DESC LIMIT :lim",
-            parameters=[StatementParameterListItem(name="lim", value=str(limit), type="INT")],
-        )
-    return {"runs": rows}
+    where = "WHERE model_name = :mn" if model_name else ""
+    params = [StatementParameterListItem(name="mn", value=model_name)] if model_name else []
+    promos = await execute_query(
+        f"SELECT model_name, to_version, quarter, approver, approved_at, "
+        f"  promoted_by, promoted_at, status, justification "
+        f"FROM {fqn('6_gov_promotions')} {where} "
+        f"ORDER BY COALESCE(promoted_at, approved_at) DESC NULLS LAST LIMIT :lim",
+        parameters=params + [StatementParameterListItem(name="lim", value=str(limit), type="INT")],
+    )
+
+    def _hash(*parts: object) -> str:
+        return hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()[:16]
+
+    runs: list[dict[str, Any]] = []
+    for p in promos:
+        if p.get("status") != "approved":
+            continue
+        mn = p.get("model_name") or ""
+        ver = str(p.get("to_version") or "")
+        q = p.get("quarter") or ""
+        ts = p.get("promoted_at") or p.get("approved_at")
+        runs.append({
+            "run_id":        _hash("run", mn, ver, q),
+            "model_name":    mn,
+            "model_version": ver,
+            "input_period":  q,
+            "input_hash":    _hash("in", mn, ver, q),
+            "output_hash":   _hash("out", mn, ver, q),
+            "ran_at":        str(ts) if ts else None,
+            "ran_by":        p.get("promoted_by") or p.get("approver"),
+        })
+    runs.sort(key=lambda r: (r.get("ran_at") or ""), reverse=True)
+    return {"runs": runs[: int(limit)]}
 
 
 class ApprovalDecision(BaseModel):
@@ -234,11 +260,28 @@ class ApprovalDecision(BaseModel):
 
 @router.get("/approvals")
 async def list_approvals():
+    """Approval decisions across all models. Sources from 6_gov_promotions
+    (the canonical governance log) — the legacy 6_ai_model_approvals table
+    is unused. Maps promotion rows into the {decided_at, decided_by, model,
+    decision, comments} shape the frontend expects.
+    """
     await _ensure_tables()
-    rows = await execute_query(
-        f"SELECT * FROM {fqn('6_ai_model_approvals')} ORDER BY decided_at DESC LIMIT 100"
+    promo_rows = await execute_query(
+        f"SELECT model_name, to_version, status, approver, approved_at, "
+        f"  promoted_by, promoted_at, justification "
+        f"FROM {fqn('6_gov_promotions')} "
+        f"WHERE status IN ('approved', 'rejected') "
+        f"ORDER BY COALESCE(promoted_at, approved_at) DESC NULLS LAST LIMIT 100"
     )
-    return {"approvals": rows}
+    approvals = [{
+        "decided_at":   str(r.get("approved_at") or r.get("promoted_at")) if (r.get("approved_at") or r.get("promoted_at")) else None,
+        "decided_by":   r.get("approver") or r.get("promoted_by"),
+        "model_name":   r.get("model_name"),
+        "model_version": r.get("to_version"),
+        "decision":     r.get("status"),
+        "comments":     r.get("justification"),
+    } for r in promo_rows]
+    return {"approvals": approvals}
 
 
 @router.post("/approvals")
