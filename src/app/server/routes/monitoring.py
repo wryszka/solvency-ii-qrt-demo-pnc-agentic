@@ -321,6 +321,12 @@ FEED_MAP = {
     "1_raw_expenses": {"table": "1_raw_expenses", "dq_pipeline": "S.05.01 Premiums Claims Expenses", "dq_tables": ["2_stg_expenses_by_lob"]},
     "1_raw_risk_factors": {"table": "1_raw_risk_factors", "dq_pipeline": "S.25.01 SCR Template", "dq_tables": ["3_qrt_s2501_scr_breakdown", "3_qrt_s2501_summary"]},
     "1_raw_exposures": {"table": "1_raw_exposures", "dq_pipeline": "S.26.06 NL UW Risk Template", "dq_tables": ["4_eng_stochastic_results"]},
+    "1_raw_reinsurance": {"table": "1_raw_reinsurance", "dq_pipeline": "S.26.06 NL UW Risk Template", "dq_tables": ["2_stg_cat_risk_by_lob"]},
+    "1_raw_counterparties": {"table": "1_raw_counterparties", "dq_pipeline": "S.06.02 List of Assets", "dq_tables": ["2_stg_assets_enriched"]},
+    "1_raw_balance_sheet": {"table": "1_raw_balance_sheet", "dq_pipeline": "S.06.02 List of Assets", "dq_tables": ["2_stg_assets_enriched"]},
+    "1_raw_volume_measures": {"table": "1_raw_volume_measures", "dq_pipeline": "S.26.06 NL UW Risk Template", "dq_tables": ["2_stg_premium_reserve_risk"]},
+    "1_raw_own_funds": {"table": "1_raw_own_funds", "dq_pipeline": "S.25.01 SCR Template", "dq_tables": ["3_qrt_s2501_summary"]},
+    "1_raw_claims_triangles": {"table": "1_raw_claims_triangles", "dq_pipeline": "S.05.01 Premiums Claims Expenses", "dq_tables": ["2_stg_claims_by_lob"]},
 }
 
 
@@ -338,12 +344,19 @@ async def get_feed_detail(feed_name: str):
             WHERE feed_name = '{feed_name}'
             ORDER BY reporting_period DESC
         """
+        # Period-aware completeness. For tables without reporting_period
+        # (e.g. static treaty data like 1_raw_reinsurance), fall back to a
+        # single-bucket total row count.
         completeness_q = f"""
-            SELECT reporting_period,
+            SELECT CAST(reporting_period AS STRING) AS reporting_period,
                    COUNT(*) AS row_count
             FROM {fqn(table)}
             GROUP BY reporting_period
             ORDER BY reporting_period DESC
+        """
+        completeness_fallback_q = f"""
+            SELECT 'all' AS reporting_period, COUNT(*) AS row_count
+            FROM {fqn(table)}
         """
         dq_rules_q = f"""
             SELECT expectation_name, table_name, total_records,
@@ -354,11 +367,13 @@ async def get_feed_detail(feed_name: str):
             AND reporting_period = (SELECT MAX(reporting_period) FROM {fqn('5_mon_dq_expectation_results')})
             ORDER BY table_name, expectation_name
         """
+        # Period-aware sample. Fall back to plain LIMIT for non-period tables.
         sample_q = f"""
             SELECT * FROM {fqn(table)}
             WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn(table)})
             LIMIT 20
         """
+        sample_fallback_q = f"SELECT * FROM {fqn(table)} LIMIT 20"
         columns_q = f"DESCRIBE {fqn(table)}"
 
         # Run all 5 queries concurrently. Wrap with return_exceptions so individual
@@ -380,6 +395,19 @@ async def get_feed_detail(feed_name: str):
         dq_rules = _ok(dq_rules_r)
         sample = _ok(sample_r)
         columns = _ok(columns_r)
+
+        # If the table has no reporting_period column, the period-aware
+        # queries return empty (or raise). Retry with the fallback shape.
+        has_period = any(c.get("col_name") == "reporting_period" for c in columns)
+        if not has_period:
+            try:
+                completeness = await execute_query_cached(completeness_fallback_q, ttl_seconds=30)
+            except Exception:
+                completeness = []
+            try:
+                sample = await execute_query_cached(sample_fallback_q, ttl_seconds=30)
+            except Exception:
+                sample = []
 
         # Compute period-over-period change
         for i, row in enumerate(completeness):
