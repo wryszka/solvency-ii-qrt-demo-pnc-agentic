@@ -88,70 +88,114 @@ async def registry():
 async def comparison():
     """Champion vs Challenger SCR comparison for the latest period.
 
-    The comparison runs both registered model versions (Champion + Challenger)
-    against the same risk factors, summarising the +4% delta.
+    Calibration parameters for both versions live in the governed UC table
+    `0_cfg_sf_calibrations` (same values logged as MLflow run params at
+    registration time; the table is the queryable source-of-truth that the
+    app's service principal can read via the warehouse). Module charges
+    come from `2_stg_scr_results`. The standard-formula aggregation runs
+    in-process under each parameter set.
     """
+    import math
+    from server.config import get_catalog, get_schema
     try:
-        # Reload both models and run them against the latest risk factors
-        import mlflow
-        from server.config import get_catalog, get_schema
-        catalog = get_catalog()
-        schema = get_schema()
+        catalog = get_catalog(); schema = get_schema()
         model_name = f"{catalog}.{schema}.standard_formula"
 
-        rf_q = f"""
-            SELECT risk_module, risk_sub_module, CAST(charge_eur AS DOUBLE) AS charge_eur
-            FROM {fqn('1_raw_risk_factors')}
-            WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn('1_raw_risk_factors')})
-        """
-        rf_rows = await execute_query(rf_q)
-        if not rf_rows:
-            raise HTTPException(404, "No risk factors loaded — run the SCR pipeline first")
+        # ── 1. Pull calibrations from the governed UC table ─────────────
+        calib_rows = await execute_query(f"""
+            SELECT version_alias, model_version, calibration_year,
+                   op_risk_factor, lac_dt_cap, bscr_market_nl_corr,
+                   bscr_nl_prem_cat_corr, spread_corr, change_summary
+            FROM {fqn('0_cfg_sf_calibrations')}
+            ORDER BY model_version
+        """)
+        if len(calib_rows) < 2:
+            raise HTTPException(404, "Need at least two calibration rows in 0_cfg_sf_calibrations")
+        champ = next((r for r in calib_rows if (r.get("version_alias") or "").lower() == "champion"), calib_rows[0])
+        chall = next((r for r in calib_rows if (r.get("version_alias") or "").lower() == "challenger"), calib_rows[-1])
 
-        import pandas as pd
-        rf_df = pd.DataFrame(rf_rows)
+        # ── 2. Module charges from the latest gold scr-results row ──────
+        scr_rows = await execute_query(f"""
+            SELECT component, CAST(amount_eur AS DOUBLE) AS amount_eur
+            FROM {fqn('2_stg_scr_results')}
+            WHERE reporting_period = (SELECT MAX(reporting_period) FROM {fqn('2_stg_scr_results')})
+              AND component IN ('SCR_market','SCR_default','SCR_non_life','SCR_health','SCR_life')
+        """)
+        label_map = {"SCR_market": "market", "SCR_default": "default",
+                     "SCR_life": "life", "SCR_health": "health", "SCR_non_life": "non_life"}
+        modules = {label_map[r["component"]]: float(r["amount_eur"] or 0)
+                   for r in scr_rows if r["component"] in label_map}
+        if not modules:
+            raise HTTPException(404, "No SCR results — run the SCR pipeline first")
 
-        mlflow.set_registry_uri("databricks-uc")
+        # ── 3. Standard formula under each parameter set ────────────────
+        labels = ["market", "default", "life", "health", "non_life"]
+        base_corr = [
+            [1.00, 0.25, 0.25, 0.25, 0.25],
+            [0.25, 1.00, 0.25, 0.25, 0.50],
+            [0.25, 0.25, 1.00, 0.25, 0.00],
+            [0.25, 0.25, 0.25, 1.00, 0.00],
+            [0.25, 0.50, 0.00, 0.00, 1.00],
+        ]
 
-        def _run_model(alias: str) -> dict:
-            try:
-                m = mlflow.pyfunc.load_model(f"models:/{model_name}@{alias}")
-                out = m.predict(rf_df)
-                rows = out.to_dict(orient="records") if hasattr(out, "to_dict") else out
-                return {"alias": alias, "rows": rows}
-            except Exception as exc:
-                return {"alias": alias, "error": str(exc), "rows": []}
+        def _run_sf(cfg: dict) -> dict[str, float]:
+            op_factor = float(cfg.get("op_risk_factor") or 0.03)
+            lac_cap   = float(cfg.get("lac_dt_cap") or 0.10)
+            mkt_nl    = float(cfg.get("bscr_market_nl_corr") or 0.25)
+            corr = [row[:] for row in base_corr]
+            corr[0][4] = corr[4][0] = mkt_nl
+            total = 0.0
+            for i, mi in enumerate(labels):
+                for j, mj in enumerate(labels):
+                    total += corr[i][j] * modules.get(mi, 0) * modules.get(mj, 0)
+            bscr = math.sqrt(max(total, 0.0))
+            op = bscr * op_factor
+            lac = min(bscr * lac_cap, bscr * 0.15)
+            scr = bscr + op - lac
+            return {"BSCR": bscr, "Op_risk": op, "LAC_DT": lac, "SCR": scr,
+                    **{f"SCR_{k}": v for k, v in modules.items()}}
 
-        # Run sequentially to avoid MLflow client races
-        champion = await asyncio.to_thread(_run_model, "Champion")
-        challenger = await asyncio.to_thread(_run_model, "Challenger")
+        champ_out = _run_sf(champ)
+        chall_out = _run_sf(chall)
 
-        def _by_component(rows: list[dict]) -> dict[str, float]:
-            return {r.get("component"): float(r.get("amount_eur", 0) or 0) for r in rows}
-
-        champ_map = _by_component(champion.get("rows", []))
-        chal_map  = _by_component(challenger.get("rows", []))
-
+        # ── 4. Component diff table ──────────────────────────────────────
         components = ["SCR_market", "SCR_default", "SCR_non_life", "SCR_health", "SCR_life",
                       "BSCR", "Op_risk", "LAC_DT", "SCR"]
         rows: list[dict[str, Any]] = []
         for c in components:
-            champ = champ_map.get(c, 0.0)
-            chal = chal_map.get(c, 0.0)
-            delta = chal - champ
-            delta_pct = round((delta / champ) * 100, 2) if champ else 0.0
+            ch = champ_out.get(c, 0.0); cl = chall_out.get(c, 0.0)
+            delta = cl - ch
+            delta_pct = round((delta / ch) * 100, 2) if ch else 0.0
             rows.append({
                 "component": c,
-                "champion_eur": round(champ, 2),
-                "challenger_eur": round(chal, 2),
+                "champion_eur": round(ch, 2),
+                "challenger_eur": round(cl, 2),
                 "delta_eur": round(delta, 2),
                 "delta_pct": delta_pct,
             })
+
+        # ── 5. Parameter diff ────────────────────────────────────────────
+        param_diff = []
+        for k in ["calibration_year", "op_risk_factor", "lac_dt_cap",
+                  "bscr_market_nl_corr", "bscr_nl_prem_cat_corr", "spread_corr"]:
+            v1 = champ.get(k); v2 = chall.get(k)
+            param_diff.append({
+                "param": k,
+                "champion": v1,
+                "challenger": v2,
+                "changed": str(v1) != str(v2),
+            })
+
         return {
             "model_name": model_name,
+            "champion_version": int(champ.get("model_version") or 1),
+            "challenger_version": int(chall.get("model_version") or 2),
             "comparison": rows,
-            "champion_error": champion.get("error"),
-            "challenger_error": challenger.get("error"),
+            "param_diff": param_diff,
+            "change_summary": chall.get("change_summary"),
+            "calibration_source": f"{catalog}.{schema}.`0_cfg_sf_calibrations`",
+            "champion_error": None,
+            "challenger_error": None,
         }
     except HTTPException:
         raise

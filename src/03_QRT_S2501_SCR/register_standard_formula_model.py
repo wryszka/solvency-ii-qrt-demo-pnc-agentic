@@ -491,6 +491,44 @@ print(f"✓ Alias 'Challenger' → Version {v2} (2026 calibration)")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## 5. Write calibrations to a governed UC config table
+# MAGIC
+# MAGIC The same params logged as MLflow run-params are duplicated into
+# MAGIC `0_cfg_sf_calibrations` so the running app can query them via the
+# MAGIC warehouse (no notebook-experiment-permission grant required for the
+# MAGIC app's service principal). This is what /api/model-governance/comparison
+# MAGIC reads at request time.
+
+# COMMAND ----------
+
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {catalog_name}.{schema_name}.`0_cfg_sf_calibrations` (
+      version_alias STRING,
+      model_version INT,
+      calibration_year INT,
+      op_risk_factor DOUBLE,
+      lac_dt_cap DOUBLE,
+      bscr_market_nl_corr DOUBLE,
+      bscr_nl_prem_cat_corr DOUBLE,
+      spread_corr DOUBLE,
+      change_summary STRING
+    ) USING DELTA
+""")
+spark.sql(f"DELETE FROM {catalog_name}.{schema_name}.`0_cfg_sf_calibrations`")
+spark.sql(f"""
+    INSERT INTO {catalog_name}.{schema_name}.`0_cfg_sf_calibrations` VALUES
+      ('champion',   {v1}, 2025, {params_2025['op_risk_factor']}, {params_2025['lac_dt_cap']},
+                     {params_2025['bscr_correlation'][0][4]}, 0.25, 0.75,
+                     'Initial 2025 calibration baseline'),
+      ('challenger', {v2}, 2026, {params_2026['op_risk_factor']}, {params_2026['lac_dt_cap']},
+                     {params_2026['bscr_correlation'][0][4]}, 0.30, 0.80,
+                     'Tightened non-life UW correlation (climate risk); raised op risk factor (cyber recalibration); reduced LAC_DT cap (supervisory)')
+""")
+print(f"✓ Calibration table seeded: {catalog_name}.{schema_name}.`0_cfg_sf_calibrations`")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## 5. Quick Validation — Run Both Versions
 
 # COMMAND ----------
