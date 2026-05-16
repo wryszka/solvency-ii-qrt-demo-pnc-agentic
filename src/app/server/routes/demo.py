@@ -995,13 +995,16 @@ async def _rebase_demo_state() -> dict[str, str]:
     SCENARIOS = [
         ("natcat_1_in_200",     "1-in-200 nat cat",          [210, 162, 158, 159]),
         ("equity_minus_30",     "Equity shock −30%",          [210, 155, 156, 159]),
-        ("mass_lapse_plus_35",  "Mass lapse +35%",            [210, 123, 104,  90]),
+        ("mass_lapse_plus_35",  "Mass lapse +35%",            [210, 175, 155, 141]),
     ]
     rng2 = random.Random(7)
     orsa_rows: list[str] = []
     for d in range(30):
         observed = (today_date - timedelta(days=29 - d)).date()
-        ml_drift = 90 - (3.0 * d / 29.0)
+        # Mass lapse year-3 trough drifts from 141% (30d ago) to 138% today,
+        # matching the runbook's -3.6pp drift narrative. Stays comfortably
+        # above the SCR floor; below the firm's 175% risk appetite.
+        ml_drift = 141 - (3.0 * d / 29.0)
         for sid, sname, base_ratios in SCENARIOS:
             for yo, base_ratio in enumerate(base_ratios):
                 if sid == "mass_lapse_plus_35" and yo == 3:
