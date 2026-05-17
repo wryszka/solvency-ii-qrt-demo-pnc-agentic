@@ -515,7 +515,14 @@ async def whatif_notebook_url(scenario: str = Query("cyber_doubling")):
         notebook_path = os.path.normpath(os.path.join(root, rel))
     else:
         notebook_path = "/Workspace" + os.path.normpath("/" + rel)
-    url = f"{host}/#workspace{notebook_path}"
+    # Strip .py / .sql — bundle-deployed notebooks lose the extension.
+    for ext in (".py", ".sql"):
+        if notebook_path.endswith(ext):
+            notebook_path = notebook_path[: -len(ext)]
+            break
+    # Fragment expects path relative to the workspace tree root (no /Workspace).
+    frag_path = notebook_path[len("/Workspace"):] if notebook_path.startswith("/Workspace") else notebook_path
+    url = f"{host}/#workspace{frag_path}"
     return {"url": url, "path": notebook_path, "scenario": scenario}
 
 

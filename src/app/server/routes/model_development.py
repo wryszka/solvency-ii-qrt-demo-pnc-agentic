@@ -35,16 +35,25 @@ def _bundle_files_root() -> str:
 def _workspace_url(rel_path: str) -> str:
     """Resolve a repo-relative notebook path to a workspace deep-link.
 
-    Uses the `#workspace<path>` fragment form — opens the workspace browser at
-    that file, which works for both notebooks (.py) and queries (.sql).
+    Bundle deploy uploads .py / .sql files as Databricks notebooks with the
+    extension stripped, so the workspace path for register_foo.py is
+    .../register_foo (no extension). The fragment form `#workspace/Users/...`
+    expects the path relative to the workspace tree root (no `/Workspace`).
     """
     host = get_workspace_host().rstrip("/")
     root = _bundle_files_root()
     if root:
         full = os.path.normpath(os.path.join(root, rel_path))
     else:
-        # Local dev or BUNDLE_FILES_ROOT unset — synthesise something readable.
         full = "/Workspace" + os.path.normpath("/" + rel_path)
+    # Strip the trailing .py / .sql — bundle-deployed notebooks lose it.
+    for ext in (".py", ".sql"):
+        if full.endswith(ext):
+            full = full[: -len(ext)]
+            break
+    # Fragment expects path relative to /Workspace (drop the prefix).
+    if full.startswith("/Workspace"):
+        full = full[len("/Workspace"):]
     return f"{host}/#workspace{full}"
 
 
