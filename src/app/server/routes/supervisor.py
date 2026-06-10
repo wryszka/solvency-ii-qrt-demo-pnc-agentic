@@ -682,11 +682,28 @@ async def _call_supervisor_endpoint(endpoint_name: str, question: str, period: s
     try:
         from server.config import get_workspace_client
         w = get_workspace_client()
-        resp = await asyncio.to_thread(
-            w.serving_endpoints.query,
-            name=endpoint_name,
-            dataframe_records=[{"question": question, "period": period}],
-        )
+
+        # Scale-to-zero: the first query after idle wakes the endpoint and can
+        # take 30–90s+. Retry on transient errors so an uncached question waits
+        # for the cold start rather than failing immediately. ~6 attempts over
+        # ~2.5 min total.
+        resp = None
+        last_exc: Exception | None = None
+        for attempt in range(6):
+            try:
+                resp = await asyncio.to_thread(
+                    w.serving_endpoints.query,
+                    name=endpoint_name,
+                    dataframe_records=[{"question": question, "period": period}],
+                )
+                break
+            except Exception as e:  # noqa: BLE001 — cold-start / transient
+                last_exc = e
+                logger.info("Supervisor endpoint not ready (attempt %d/6): %s", attempt + 1, str(e)[:160])
+                await asyncio.sleep(25)
+        if resp is None:
+            logger.warning("Supervisor endpoint never answered after retries: %s", last_exc)
+            return None
         # Predictions may be on .predictions, .as_dict()['predictions'], or
         # in older SDK shapes wrapped as a dataframe split. Handle all three.
         preds = None
@@ -819,9 +836,17 @@ async def route_question(req: RouteRequest, request: Request):
                 "baked": bool(pred.get("baked")),
                 "via": "endpoint",
             }
-        # endpoint failed — fall through to Phase 7 in-app routing
+        # Endpoint is configured but didn't answer (cold start exhausted /
+        # unavailable). By design we do NOT silently fall back to in-app here —
+        # an uncached answer must come from the real serving endpoint. Fail
+        # clearly so the caller can retry once the endpoint is warm.
+        raise HTTPException(
+            503,
+            "Workbench AI is starting up (scale-to-zero). The question wasn't pre-cached, "
+            "so it needs the live model endpoint — give it a moment and ask again.",
+        )
 
-    # 2. Classify
+    # 2. Classify  — in-app routing path (only when no serving endpoint is configured)
     cls = await _classify(req.question)
     specialist = SPECIALISTS[cls.specialist_key]
 
