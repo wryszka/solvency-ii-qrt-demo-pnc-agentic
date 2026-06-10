@@ -113,7 +113,7 @@ while elapsed < DEADLINE_MIN * 60:
     final_ready = str(st.ready) if st and st.ready is not None else None
     final_cfg = str(st.config_update) if st and st.config_update is not None else None
     print(f"  [{elapsed//60}m{elapsed%60:02d}s] ready={final_ready} config_update={final_cfg}")
-    if final_ready and "READY" in final_ready:
+    if final_ready in ("READY", "EndpointStateReady.READY"):
         break
     # Surface a failed build immediately rather than waiting out the deadline.
     if final_cfg and "FAILED" in final_cfg:
@@ -130,7 +130,7 @@ while elapsed < DEADLINE_MIN * 60:
     time.sleep(POLL_SECS)
     elapsed += POLL_SECS
 
-if not (final_ready and "READY" in final_ready):
+if final_ready not in ("READY", "EndpointStateReady.READY"):
     raise RuntimeError(
         f"Endpoint {endpoint} did not reach READY within {DEADLINE_MIN} min "
         f"(last ready={final_ready}, config_update={final_cfg}). Failing the job so "
