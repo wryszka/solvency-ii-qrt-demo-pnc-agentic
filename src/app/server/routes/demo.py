@@ -526,6 +526,82 @@ async def whatif_notebook_url(scenario: str = Query("cyber_doubling")):
     return {"url": url, "path": notebook_path, "scenario": scenario}
 
 
+async def _whatif_compute(shocks: list[dict], period: str | None = None) -> dict[str, Any] | None:
+    """Run an arbitrary sub-module shock set through the standard-formula engine
+    and return the SCR + solvency-ratio impact. Shared by every what-if scenario
+    so each one is genuinely computed (not hardcoded). Returns None if no SCR
+    base data exists yet (caller falls back)."""
+    from server.routes.orsa import (
+        _ensure_orsa_tables, _load_base_modules, _apply_shocks_to_module, _scr,
+    )
+    from server.config import fqn as _fqn
+    from collections import defaultdict
+
+    await _ensure_orsa_tables()
+    if not period:
+        rows = await execute_query(f"SELECT MAX(reporting_period) AS rp FROM {_fqn('2_stg_scr_results')}")
+        period = rows[0]["rp"] if rows and rows[0]["rp"] else "2025-Q4"
+    base_modules, sub_charges, eof = await _load_base_modules(period)
+    if not base_modules:
+        return None
+
+    stressed = dict(base_modules)
+    by_mod: dict[str, list] = defaultdict(list)
+    for s in shocks:
+        by_mod[s["module"]].append(s)
+    for mod, mshocks in by_mod.items():
+        base_rc = _apply_shocks_to_module(mod, sub_charges, [])
+        new_rc = _apply_shocks_to_module(mod, sub_charges, mshocks)
+        if base_rc > 0:
+            stressed[mod] = base_modules.get(mod, 0.0) * (new_rc / base_rc)
+
+    base_scr = _scr(base_modules)
+    stress_scr = _scr(stressed)
+    rb = (eof / base_scr * 100.0) if base_scr > 0 else 0.0
+    ra = (eof / stress_scr * 100.0) if stress_scr > 0 else 0.0
+    return {
+        "base_period": period,
+        "base_scr_eur": round(base_scr, 2),
+        "stress_scr_eur": round(stress_scr, 2),
+        "scr_impact_eur": round(stress_scr - base_scr, 2),
+        "ratio_before_pct": round(rb, 1),
+        "ratio_after_pct": round(ra, 1),
+        "ratio_delta_pp": round(ra - rb, 1),
+        "eligible_own_funds_eur": round(eof, 2),
+    }
+
+
+# Non-cyber example scenarios — each maps to a real sub-module shock so the
+# engine computes a genuine SCR delta (dev: all three what-if buttons are live).
+_GENERIC_WHATIF = {
+    "motor_plus_20": {
+        "shocks": [{"module": "non_life", "sub_module": "premium_reserve", "multiplier": 1.07}],
+        "narrative": lambda c: (
+            f"Growing the motor book ~20% next year lifts the non-life premium/reserve volume "
+            f"driver (×1.07 on the sub-module). BSCR recomputed via the EIOPA correlation matrix. "
+            f"Projected SCR change EUR {c['scr_impact_eur']/1e6:.1f}M; solvency ratio impact "
+            f"{c['ratio_delta_pp']:+.1f}pp ({c['ratio_before_pct']:.1f}% → {c['ratio_after_pct']:.1f}%)."),
+    },
+    "cat_retention_2m": {
+        "shocks": [{"module": "non_life", "sub_module": "catastrophe", "multiplier": 0.82}],
+        "narrative": lambda c: (
+            f"Cutting property-cat net retention to €2M XOL cedes more of the tail to reinsurers, "
+            f"lowering the net catastrophe sub-module (×0.82). BSCR recomputed via the EIOPA "
+            f"correlation matrix. Projected SCR change EUR {c['scr_impact_eur']/1e6:.1f}M; solvency "
+            f"ratio impact {c['ratio_delta_pp']:+.1f}pp ({c['ratio_before_pct']:.1f}% → {c['ratio_after_pct']:.1f}%)."),
+    },
+}
+
+
+async def _whatif_generic_real(key: str) -> dict[str, Any]:
+    spec = _GENERIC_WHATIF[key]
+    comp = await _whatif_compute(spec["shocks"])
+    if comp is None:
+        return {"engine": "fallback:pretest", "ratio_before_pct": 211.0, "ratio_after_pct": 211.0,
+                "ratio_delta_pp": 0.0, "narrative_seed": "SCR base data not yet populated."}
+    return {"engine": "real:orsa.run_scenario", **comp, "narrative_seed": spec["narrative"](comp)}
+
+
 @router.post("/whatif/run")
 async def whatif_run(req: WhatifRequest, request: Request):
     """Run a what-if scenario, persist the result, fire the second-opinion agent."""
@@ -535,6 +611,8 @@ async def whatif_run(req: WhatifRequest, request: Request):
 
     label = req.scenario_label.lower().strip()
     is_cyber_double = ("cyber" in label and ("double" in label or "doubling" in label))
+    is_motor = ("motor" in label)
+    is_cat_retention = ("retention" in label or "xol" in label)
 
     if is_cyber_double:
         # Real engine: pulls base SCR, applies premium/reserve shock, recomputes BSCR
@@ -558,11 +636,26 @@ async def whatif_run(req: WhatifRequest, request: Request):
             "current_portfolio_smemix_pct": 78.0,
             "reinsurance_structure": "40% QS + €5M XOL above",
         }
+    elif is_motor:
+        result = await _whatif_generic_real("motor_plus_20")
+        payload_for_agent = {"scenario": "increase_motor_book_20pct", "engine": result.get("engine"),
+                             "scr_impact_eur": result.get("scr_impact_eur"),
+                             "ratio_before_pct": result.get("ratio_before_pct"),
+                             "ratio_after_pct": result.get("ratio_after_pct"),
+                             "ratio_impact_pp": result.get("ratio_delta_pp")}
+    elif is_cat_retention:
+        result = await _whatif_generic_real("cat_retention_2m")
+        payload_for_agent = {"scenario": "reduce_cat_retention_2m_xol", "engine": result.get("engine"),
+                             "scr_impact_eur": result.get("scr_impact_eur"),
+                             "ratio_before_pct": result.get("ratio_before_pct"),
+                             "ratio_after_pct": result.get("ratio_after_pct"),
+                             "ratio_impact_pp": result.get("ratio_delta_pp")}
     else:
-        # Generic placeholder — for the demo only the cyber-double scenario is fully wired
+        # Free text isn't offered in the booth UI; if it arrives, compute nothing
+        # and say so plainly rather than implying a result.
         result = {
-            "narrative_seed": f"Scenario '{req.scenario_label}' is not pre-tested for the demo. "
-                              "The platform would normally project a result here using the same engine.",
+            "narrative_seed": f"Scenario '{req.scenario_label}' isn't one of the worked examples. "
+                              "Pick one of the example scenarios to see a live projection.",
             "ratio_before_pct": 211.0,
             "ratio_after_pct": 211.0,
             "ratio_delta_pp": 0.0,
