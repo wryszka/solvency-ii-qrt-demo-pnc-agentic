@@ -32,11 +32,24 @@ four open P0s, migrated the agents onto the framework, and fixed the security it
   in-app classifier in `supervisor.py` remain the fallback when
   `SUPERVISOR_ENDPOINT_NAME` is unset or the endpoint is cold/unreachable, and they
   back the `/agents` architecture view. The framework endpoint is the primary path.
-- **Verification.** `ast.parse` + `py_compile` clean on all changed Python;
-  frontend `tsc --noEmit` exit 0. **Not yet runtime-verified on a workspace** — the
-  register→deploy job (`ai_agents_setup`) must run on dev to build the endpoint;
-  `register_agents.py` includes a `mlflow.models.predict(env_manager="uv")`
-  pre-deploy validation, and `deploy_supervisor_endpoint.py` blocks on real READY.
+- **Verification — runtime-verified on dev (2026-08-26).** Deployed via `bundle
+  deploy -t dev` + the `ai_agents_setup` job; the `workbench-supervisor` endpoint
+  came up READY serving the agent, and a live invocation returned a clean grounded
+  answer (called `fn_reserving_anomalies` + `fn_event_log_lookup`, reported Fire &
+  property +€84.7M/+92% from real data, proposed an overlay, no baked token). The
+  live deploy loop caught and fixed three bugs that static checks could not:
+  1. **`temperature` rejected by Claude Sonnet 5** — dropped the param from
+     `ChatDatabricks` (omitting it works across Claude + Llama).
+  2. **Endpoint-migration conflict** — `agents.deploy()` refuses to attach an agent
+     to an endpoint still serving the old non-agent pyfunc; the deploy notebook now
+     deletes a pre-existing endpoint of that name first, then recreates it.
+  3. **Empty/JSON-wrapped answer** — Claude extended-thinking content came back as a
+     JSON string of blocks; `predict` now invokes the graph directly and unwraps
+     the text blocks (skipping thinking) instead of relying on
+     `output_to_responses_items_stream`.
+  Also: the endpoint's ResponsesAgent signature requires the Responses `input`
+  schema (rejects chat `messages`), so the app now POSTs `{"input":[…]}` to the
+  invocations route via the SDK's authenticated ApiClient.
 
 ### Security
 - **Baked `DATABRICKS_TOKEN` removed.** The old deploy injected the notebook PAT

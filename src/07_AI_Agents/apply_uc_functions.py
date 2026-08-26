@@ -141,7 +141,9 @@ print("fn_overlays_recent ✓")
 # COMMAND ----------
 
 spark.sql(f"""
-CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.fn_reserving_anomalies(prior_period STRING, current_period STRING)
+CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.fn_reserving_anomalies(
+  prior_period STRING COMMENT 'Prior quarter, format YYYY-QN, e.g. 2025-Q3',
+  current_period STRING COMMENT 'Current quarter under review, format YYYY-QN, e.g. 2025-Q4')
 RETURNS TABLE (
   lob_name STRING, prior_incurred_eur DOUBLE, current_incurred_eur DOUBLE,
   delta_eur DOUBLE, delta_pct DOUBLE, claim_count_current BIGINT
@@ -178,7 +180,9 @@ print("fn_reserving_anomalies ✓")
 # COMMAND ----------
 
 spark.sql(f"""
-CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.fn_event_log_lookup(start_date STRING, end_date STRING)
+CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.fn_event_log_lookup(
+  start_date STRING COMMENT 'Inclusive range start, format YYYY-MM-DD, e.g. 2025-09-01',
+  end_date STRING COMMENT 'Inclusive range end, format YYYY-MM-DD, e.g. 2026-01-01')
 RETURNS TABLE (
   event_id STRING, event_name STRING, start_date DATE, end_date DATE,
   region STRING, peak_intensity DOUBLE, peak_intensity_unit STRING,
@@ -288,7 +292,7 @@ print("fn_orsa_stress_state ✓")
 # COMMAND ----------
 
 spark.sql(f"""
-CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.fn_solvency_history(days INT)
+CREATE OR REPLACE FUNCTION `{catalog}`.`{schema}`.fn_solvency_history(days INT COMMENT 'Look-back window in days from the latest observation, e.g. 90')
 RETURNS TABLE (
   observed_date DATE, ratio_pct DOUBLE, delta_vs_prior_pp DOUBLE,
   driver STRING, driver_class STRING

@@ -692,22 +692,45 @@ def _extract_responses_text(resp: Any) -> tuple[str, list[str]]:
     texts: list[str] = []
     tools: list[str] = []
 
+    def _is_reasoning_blob(t: str) -> bool:
+        # The Responses stream can serialise a reasoning item as an output_text
+        # whose text is a JSON array like [{"type": "reasoning", ...}]. That's not
+        # the user-facing answer — skip it.
+        s = (t or "").lstrip()
+        if not s.startswith("[") and not s.startswith("{"):
+            return False
+        try:
+            obj = json.loads(s)
+        except Exception:
+            return False
+        if isinstance(obj, list) and obj and isinstance(obj[0], dict):
+            return obj[0].get("type") == "reasoning"
+        return isinstance(obj, dict) and obj.get("type") == "reasoning"
+
+    def _add_text(t):
+        if isinstance(t, str) and t.strip() and not _is_reasoning_blob(t):
+            texts.append(t)
+
     # Responses API shape: {"output": [{type, content|text|name, ...}, ...]}
+    # Assistant answer lives in `message` items (content blocks of type
+    # output_text); tool calls are `function_call` items carrying the UC fn name.
     for item in (d.get("output") or []):
         if not isinstance(item, dict):
             continue
         itype = item.get("type", "")
         if itype in ("function_call", "tool_call") and item.get("name"):
             tools.append(item["name"])
+            continue
+        if itype == "function_call_output":
+            continue  # tool result payload, not the answer
         content = item.get("content")
         if isinstance(content, list):
             for c in content:
-                if isinstance(c, dict) and c.get("text"):
-                    texts.append(c["text"])
-        elif isinstance(content, str) and content:
-            texts.append(content)
-        elif isinstance(item.get("text"), str) and item["text"]:
-            texts.append(item["text"])
+                if isinstance(c, dict):
+                    _add_text(c.get("text"))
+        elif isinstance(content, str):
+            _add_text(content)
+        _add_text(item.get("text"))
 
     # Chat-completions shape: {"choices": [{"message": {"content": "..."}}]}
     for ch in (d.get("choices") or []):
@@ -735,8 +758,14 @@ async def _call_supervisor_endpoint(endpoint_name: str, question: str, period: s
     user_content = f"{question}\n\n(Reporting period under review: {period})"
     try:
         from server.config import get_workspace_client
-        from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
         w = get_workspace_client()
+
+        # The endpoint is a Mosaic AI Agent Framework ResponsesAgent — its signature
+        # REQUIRES the Responses `input` schema and rejects chat `messages`. The SDK
+        # serving query helper has no `input=` param, so POST the invocations route
+        # directly through the SDK's authenticated ApiClient (no hand-built token).
+        payload = {"input": [{"role": "user", "content": user_content}]}
+        path = f"/serving-endpoints/{endpoint_name}/invocations"
 
         # Scale-to-zero: the first query after idle wakes the endpoint and can
         # take 30–90s+. Retry on transient errors so an uncached question waits
@@ -746,9 +775,9 @@ async def _call_supervisor_endpoint(endpoint_name: str, question: str, period: s
         for attempt in range(6):
             try:
                 resp = await asyncio.to_thread(
-                    w.serving_endpoints.query,
-                    name=endpoint_name,
-                    messages=[ChatMessage(role=ChatMessageRole.USER, content=user_content)],
+                    w.api_client.do, "POST", path,
+                    headers={"Content-Type": "application/json"},
+                    body=payload,
                 )
                 break
             except Exception as e:  # noqa: BLE001 — cold-start / transient
@@ -760,6 +789,9 @@ async def _call_supervisor_endpoint(endpoint_name: str, question: str, period: s
             return None
 
         text, tool_names = _extract_responses_text(resp)
+        # Tool names come back fully-qualified with __ separators
+        # (catalog__schema__fn_x) — show just the fn_* for readability/traceability.
+        tool_names = [t.split("__")[-1] if "__" in t else t for t in tool_names]
         if not text:
             logger.warning("Agent endpoint returned no text: %r", type(resp).__name__)
             return None

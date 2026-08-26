@@ -148,7 +148,10 @@ class State(TypedDict):
 
 class WorkbenchAgent(ResponsesAgent):
     def __init__(self):
-        self.llm = ChatDatabricks(endpoint=LLM_ENDPOINT, temperature=0.1)
+        # NOTE: do NOT pass temperature — newer Claude endpoints (Sonnet 5 /
+        # Opus 4.x) reject the temperature parameter with a 400. Omitting it uses
+        # the model default and works across Claude + Llama fallbacks alike.
+        self.llm = ChatDatabricks(endpoint=LLM_ENDPOINT)
         self.tools = list(UCFunctionToolkit(function_names=UC_FUNCTIONS).tools)
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 
@@ -169,23 +172,60 @@ class WorkbenchAgent(ResponsesAgent):
         g.add_edge("tools", "agent")
         return g.compile()
 
+    @staticmethod
+    def _text_from_content(content) -> str:
+        # Claude Sonnet 5 does extended thinking. ChatDatabricks hands the final
+        # AIMessage.content back either as a list of blocks
+        # [{"type":"thinking"|"reasoning",...}, {"type":"text",...}] OR — the case
+        # that bit us — as a JSON *string* of that same list. Keep only the text
+        # blocks; the thinking/reasoning blocks are not the user-facing answer.
+        import json as _json
+        if isinstance(content, str):
+            s = content.strip()
+            if s.startswith("[") or s.startswith("{"):
+                try:
+                    return WorkbenchAgent._text_from_content(_json.loads(s))
+                except Exception:
+                    return content
+            return content
+        if isinstance(content, list):
+            parts = []
+            for b in content:
+                if isinstance(b, dict):
+                    if b.get("type") in ("text", "output_text") and b.get("text"):
+                        parts.append(b["text"])
+                elif isinstance(b, str):
+                    parts.append(b)
+            return "\\n".join(parts)
+        if isinstance(content, dict) and content.get("type") in ("text", "output_text"):
+            return content.get("text", "")
+        return ""
+
+    def _answer(self, req: ResponsesAgentRequest) -> str:
+        # Run the tool-calling graph to completion and take the last non-empty
+        # assistant text. Deterministic and robust — no dependence on the exact
+        # stream-event type strings.
+        msgs = to_chat_completions_input([m.model_dump() for m in req.input])
+        final = self._graph().invoke({"messages": msgs})
+        for m in reversed(final.get("messages", [])):
+            if isinstance(m, AIMessage):
+                txt = self._text_from_content(m.content).strip()
+                if txt:
+                    return txt
+        return "I could not produce an answer from the available governed data."
+
+    def predict(self, req: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        return ResponsesAgentResponse(
+            output=[self.create_text_output_item(text=self._answer(req), id="msg_1")]
+        )
+
     def predict_stream(
         self, req: ResponsesAgentRequest
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
-        msgs = to_chat_completions_input([m.model_dump() for m in req.input])
-        for kind, payload in self._graph().stream({"messages": msgs}, stream_mode=["updates"]):
-            if kind != "updates":
-                continue
-            for node in payload.values():
-                if node.get("messages"):
-                    yield from output_to_responses_items_stream(node["messages"])
-
-    def predict(self, req: ResponsesAgentRequest) -> ResponsesAgentResponse:
-        items = [
-            ev.item for ev in self.predict_stream(req)
-            if ev.type == "response.output_item.done"
-        ]
-        return ResponsesAgentResponse(output=items)
+        yield ResponsesAgentStreamEvent(
+            type="response.output_item.done",
+            item=self.create_text_output_item(text=self._answer(req), id="msg_1"),
+        )
 
 
 mlflow.langchain.autolog()

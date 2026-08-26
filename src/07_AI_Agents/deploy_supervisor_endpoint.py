@@ -59,6 +59,30 @@ print(f"Serving {full_model} v{version}")
 
 # COMMAND ----------
 
+# Migration guard. agents.deploy() refuses to attach a framework agent to an
+# endpoint that already serves an INCOMPATIBLE (non-agent) model — which is
+# exactly the state left by the previous bespoke-pyfunc deploy of this same
+# endpoint name ("all served models are required to be agents ... with the same
+# signature"). If an endpoint by this name already exists, delete it so
+# agents.deploy() recreates it cleanly as an agent endpoint. Idempotent: a later
+# agent-to-agent redeploy just recreates the (scale-to-zero) endpoint.
+try:
+    _existing = w.serving_endpoints.get(endpoint)
+except Exception:
+    _existing = None
+if _existing is not None:
+    print(f"Endpoint {endpoint} already exists — deleting so agents.deploy() can recreate it "
+          f"as a framework agent endpoint (migration from the old pyfunc endpoint).")
+    w.serving_endpoints.delete(endpoint)
+    # Wait until it's actually gone before recreating (delete is async).
+    for _ in range(30):
+        try:
+            w.serving_endpoints.get(endpoint)
+            time.sleep(10)
+        except Exception:
+            break
+    print(f"Endpoint {endpoint} deleted.")
+
 # Deploy on the framework. endpoint_name is passed explicitly — the auto-derived
 # name (agents_<catalog>-<schema>-<model>) is unpredictable and the app expects
 # a stable SUPERVISOR_ENDPOINT_NAME. scale_to_zero is the framework default.
