@@ -17,9 +17,10 @@ import { Link } from 'react-router-dom';
 import {
   ArrowLeft, ExternalLink, Bot, Send,
   Loader2, MessageSquareCode, Shield, Scale, Beaker, Workflow,
-  Database, FileSearch, GitCompare,
+  Database, FileSearch, GitCompare, Server,
 } from 'lucide-react';
 import { renderMarkdownSafe } from '../lib/markdown';
+import AgentInterfacePanel from '../components/AgentInterfacePanel';
 
 interface UcArtefact {
   uc_path: string | null;
@@ -90,6 +91,7 @@ const SPECIALIST_ICON: Record<string, React.ComponentType<{ className?: string }
 export default function AgentArchitecture() {
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [supervisor, setSupervisor] = useState<SupervisorMeta | null>(null);
+  const [tab, setTab] = useState<'architecture' | 'mcp'>('architecture');
 
   useEffect(() => {
     fetch('/api/supervisor/specialists')
@@ -117,6 +119,18 @@ export default function AgentArchitecture() {
         </p>
       </header>
 
+      <div className="flex gap-1 border-b border-gray-200 -mt-1">
+        {([['architecture', 'Architecture', Workflow], ['mcp', 'Agent Interface (MCP)', Server]] as const).map(([k, label, Icon]) => (
+          <button key={k} type="button" onClick={() => setTab(k)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
+              tab === k ? 'border-violet-600 text-violet-800' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+            <Icon className="w-3.5 h-3.5" /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'mcp' && <AgentInterfacePanel />}
+      {tab === 'architecture' && (<>
       {/* Inline chat */}
       <InlineChat />
 
@@ -150,6 +164,7 @@ export default function AgentArchitecture() {
       <p className="text-[11px] text-gray-500 italic text-center">
         Live routing activity: <Link to="/governance" className="text-violet-700 hover:underline">Governance → AI Governance</Link>
       </p>
+      </>)}
     </div>
   );
 }

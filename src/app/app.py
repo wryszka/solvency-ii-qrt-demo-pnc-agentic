@@ -91,6 +91,8 @@ app.include_router(agents.router)
 app.include_router(demo.router)
 from server.routes import model_development as _model_development
 app.include_router(_model_development.router)
+from server.routes import mcp as _mcp
+app.include_router(_mcp.router)
 
 
 @app.middleware("http")
