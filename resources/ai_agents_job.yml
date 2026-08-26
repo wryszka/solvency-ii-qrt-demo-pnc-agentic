@@ -9,9 +9,11 @@
 # governance_setup job has run, since some UC Functions reference gold tables
 # that governance_setup creates).
 #
-# `apply_uc_functions`     — creates fn_* in UC under {catalog}.{schema}
-# `register_agents`        — logs + registers agent_* pyfuncs in UC
-# `deploy_supervisor_endpoint` — provisions the workbench-supervisor serving endpoint
+# `apply_uc_functions`     — creates fn_* in UC under {catalog}.{schema} (the agent's tools)
+# `register_agents`        — logs + registers the ResponsesAgent (Mosaic AI Agent
+#                            Framework) in UC, tools = the fn_* UC functions
+# `deploy_supervisor_endpoint` — serves it via databricks.agents.deploy() (scoped
+#                            auto-auth, no baked token)
 
 resources:
   jobs:
@@ -42,8 +44,8 @@ resources:
             base_parameters:
               catalog_name: ${var.catalog_name}
               schema_name:  ${var.schema_name}
-              fm_endpoint:  databricks-claude-sonnet-4
-              warehouse_id: ${var.warehouse_id}
+              fm_endpoint:  databricks-claude-sonnet-5
+              model_name:   agent_workbench_supervisor
           environment_key: default
 
         - task_key: deploy_supervisor_endpoint
@@ -52,20 +54,25 @@ resources:
           notebook_task:
             notebook_path: ../src/07_AI_Agents/deploy_supervisor_endpoint.py
             base_parameters:
-              catalog_name:        ${var.catalog_name}
-              schema_name:         ${var.schema_name}
-              endpoint_name:       workbench-supervisor
-              workload_size:       Small
-              fm_endpoint:         databricks-claude-sonnet-4
-              warehouse_http_path: /sql/1.0/warehouses/${var.warehouse_id}
+              catalog_name:  ${var.catalog_name}
+              schema_name:   ${var.schema_name}
+              endpoint_name: workbench-supervisor
+              model_name:    agent_workbench_supervisor
           environment_key: default
 
       environments:
         - environment_key: default
           spec:
             client: "1"
+            # Mosaic AI Agent Framework stack. The register step authors a
+            # ResponsesAgent (LangGraph + UC-function tools); the deploy step uses
+            # databricks.agents.deploy(). No databricks-sql-connector/pandas — the
+            # agent reads data through governed UC-function tools, not raw SQL.
             dependencies:
-              - mlflow>=2.16
+              - mlflow>=3.1
+              - databricks-agents
+              - databricks-langchain
+              - langgraph
+              - unitycatalog-ai[databricks]
               - databricks-sdk
-              - databricks-sql-connector
-              - pandas
+              - pydantic>=2

@@ -446,19 +446,24 @@ for tbl in ["6_gov_overlays", "6_gov_promotions", "6_gov_model_aliases", "6_gov_
     print(f"  {tbl:35s} {n:>6,} rows")
 
 print()
+# Bind the period strings as parameters rather than interpolating the widget
+# value into SQL. int(year) also validates the widget is numeric before use.
+q4_period = f"{int(year)}-Q4"
+next_q1_period = f"{int(year) + 1}-Q1"
+
 print("Sample — current overlays for Q4:")
-display(spark.sql(f"""
+display(spark.sql("""
     SELECT quarter, model_name, line_of_business, magnitude_eur, direction, category, status, lifecycle_action
-    FROM `6_gov_overlays` WHERE quarter = '{year}-Q4'
+    FROM `6_gov_overlays` WHERE quarter = :q4
     ORDER BY ABS(magnitude_eur) DESC
-"""))
+""", args={"q4": q4_period}))
 
 print("Sample — Q4 promotions per model:")
-display(spark.sql(f"""
+display(spark.sql("""
     SELECT model_name, model_type, to_version, status, approver
-    FROM `6_gov_promotions` WHERE quarter = '{year}-Q4' OR quarter = '{int(year)+1}-Q1'
+    FROM `6_gov_promotions` WHERE quarter = :q4 OR quarter = :next_q1
     ORDER BY model_name, quarter
-"""))
+""", args={"q4": q4_period, "next_q1": next_q1_period}))
 
 print()
 print("=" * 60)

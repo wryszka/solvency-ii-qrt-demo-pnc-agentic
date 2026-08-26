@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { Sparkles, Loader2, AlertTriangle, Wind, RefreshCw, CheckCircle2, Send } from 'lucide-react';
 import { renderMarkdownSafe } from '../lib/markdown';
 import { useStreamedText } from '../lib/hooks/useStreamedText';
+import { IllustrativeBadge } from './IllustrativeBadge';
 import { fetchCatAgentReview, fetchCatAgentState, approveCatAgent } from '../lib/api';
 
 interface ReviewResponse {
@@ -59,7 +60,10 @@ export default function CatAgentPanel() {
           <Wind className="w-4 h-4 text-violet-700" />
         </div>
         <div className="flex-1">
-          <h4 className="text-sm font-bold text-gray-900 leading-tight">Cat Modelling Agent</h4>
+          <h4 className="text-sm font-bold text-gray-900 leading-tight flex items-center gap-1.5 flex-wrap">
+            Cat Modelling Agent
+            <IllustrativeBadge title="Igloo cat output is pre-computed sample data — not a live engine run" />
+          </h4>
           <p className="text-[11px] text-gray-500">AI review · cross-references the external event log · proposes accept / re-run / escalate</p>
         </div>
         <button onClick={load} disabled={loading}

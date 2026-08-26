@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FlaskConical, AlertTriangle, ArrowLeft } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
+import { IllustrativeBadge, IllustrativeEngineNote } from '../components/IllustrativeBadge';
 import { SkeletonTable } from '../components/Skeleton';
 import ArtefactConnectionsPanel from '../components/ArtefactConnectionsPanel';
 import ArtefactImpactPanel from '../components/ArtefactImpactPanel';
@@ -84,16 +85,19 @@ export default function LifeUWRisk() {
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Reporting Cycle
       </Link>
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2 flex-wrap">
           <FlaskConical className="w-6 h-6 text-blue-700" />
           Life UW Risk
           <PillarChip pillar={1} size="md" />
+          <IllustrativeBadge title="Prophet output is pre-computed sample data — not a live engine run" />
         </h2>
         <p className="text-sm text-gray-500 mt-1">
           Prophet stochastic engine output — mortality, longevity, lapse, expense, life cat.
           Diversified at the EIOPA Annex IV correlation matrix.
         </p>
       </div>
+
+      <IllustrativeEngineNote engine="Prophet" />
 
       <ArtefactConnectionsPanel qrtId="life_uw_risk" />
 

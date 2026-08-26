@@ -205,6 +205,14 @@ export function MarketLiveDiagram() {
           Single-issuer + asset-class concentration metrics tracked continuously; the CRO sees the drift before it becomes a limit breach.
         </DetailCard>
       </div>
+      <p className="mt-3 flex items-start gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 leading-relaxed">
+        <FlaskConical className="w-3.5 h-3.5 shrink-0 mt-px" />
+        <span>
+          <strong>Illustrative figures.</strong> The SCR_market total and the sensitivity deltas above are
+          illustrative — they show the <em>shape</em> of a live-sensitivity board view. In production each is
+          computed from your ALM / market-risk model against the current portfolio, not hardcoded.
+        </span>
+      </p>
     </div>
   );
 }

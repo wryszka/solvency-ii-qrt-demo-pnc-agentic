@@ -216,7 +216,11 @@ print(f"✓ Registered {pnc_model_name} (v1, v2)")
 class LifeReservingModel(mlflow.pyfunc.PythonModel):
     """Best-estimate life reserves projection.
 
-    Mock methodology — discounts expected cashflows under best-estimate assumptions.
+    Illustrative methodology — discounts expected cashflows on the EIOPA
+    risk-free **term structure** r(t) (Solvency II requires curve discounting,
+    not a flat rate). The curve is carried in the model params (self-contained
+    at serve time) and seeded from `src/config/eiopa_rfr_curve.csv`; Challenger
+    calibrations apply a parallel shift (`curve_shift_bps`).
 
     Input DataFrame:
       - product_line, projection_year, expected_cashflow
@@ -229,10 +233,35 @@ class LifeReservingModel(mlflow.pyfunc.PythonModel):
         with open(context.artifacts["parameters"], "r") as f:
             self.params = json.load(f)
 
+    @staticmethod
+    def _rfr_rate(curve, t, shift_bps=0.0):
+        """Annualised risk-free rate for maturity t (years) off the term
+        structure `curve` (ordered list of [maturity_years, rate_pct]).
+        Linear interpolation between points; flat extrapolation beyond the
+        last point. `shift_bps` applies a parallel shift for Challenger runs."""
+        pts = sorted((float(m), float(r)) for m, r in curve)
+        shift = float(shift_bps) / 100.0  # bps → percentage points
+        t = max(float(t), pts[0][0])
+        if t >= pts[-1][0]:
+            rate_pct = pts[-1][1]
+        else:
+            rate_pct = pts[0][1]
+            for (m0, r0), (m1, r1) in zip(pts, pts[1:]):
+                if m0 <= t <= m1:
+                    rate_pct = r0 + (r1 - r0) * (t - m0) / (m1 - m0)
+                    break
+        return (rate_pct + shift) / 100.0
+
     def predict(self, context, model_input, params=None):
         p = self.params
-        discount_rate = float(p["discount_rate_pct"]) / 100.0
         cor_rate = float(p["cost_of_capital_pct"]) / 100.0
+        shift_bps = float(p.get("curve_shift_bps", 0.0))
+        # EIOPA risk-free term structure (illustrative calibration). Fallback to
+        # a flat curve if an older params blob only carried discount_rate_pct.
+        curve = p.get("rfr_curve")
+        if not curve:
+            flat = float(p.get("discount_rate_pct", 2.5))
+            curve = [[1, flat], [30, flat]]
         df = model_input.copy()
 
         out = []
@@ -241,8 +270,9 @@ class LifeReservingModel(mlflow.pyfunc.PythonModel):
             for _, r in g.iterrows():
                 t = int(r["projection_year"])
                 cf = float(r["expected_cashflow"])
-                be += cf / ((1.0 + discount_rate) ** t)
-            risk_margin = be * cor_rate * 5  # mock: 5-year average duration
+                r_t = self._rfr_rate(curve, t, shift_bps)  # curve rate for maturity t
+                be += cf / ((1.0 + r_t) ** t)
+            risk_margin = be * cor_rate * 5  # illustrative: 5-year average duration
             out.append({
                 "product_line": product,
                 "best_estimate_eur": round(be, 2),
@@ -264,15 +294,25 @@ life_output = Schema([
 ])
 life_signature = ModelSignature(inputs=life_input, outputs=life_output)
 
+# EIOPA risk-free term structure (illustrative calibration, EUR) — seeded from
+# src/config/eiopa_rfr_curve.csv. Carried in params so the pyfunc is
+# self-contained at serve time. Rates in %; interpolated per maturity in predict.
+EIOPA_RFR_CURVE = [
+    [1, 2.00], [2, 2.10], [3, 2.20], [4, 2.30], [5, 2.40],
+    [7, 2.55], [10, 2.70], [15, 2.85], [20, 2.95], [30, 3.00],
+]
+
 life_params_v1 = {
     "calibration_label": "2025-Q4 v1",
-    "discount_rate_pct": 2.5,
+    "rfr_curve": EIOPA_RFR_CURVE,       # EIOPA risk-free term structure (illustrative)
+    "curve_shift_bps": 0.0,             # production: base curve
     "cost_of_capital_pct": 6.0,
 }
 
 life_params_v2 = {
     "calibration_label": "2026-Q1 v1-rc1",
-    "discount_rate_pct": 2.7,
+    "rfr_curve": EIOPA_RFR_CURVE,       # same term structure, shifted for the recalibration
+    "curve_shift_bps": 20.0,            # candidate: parallel +20bps (rates up → TP down)
     "cost_of_capital_pct": 6.0,
 }
 

@@ -672,21 +672,75 @@ class RouteRequest(BaseModel):
     period: str = "2025-Q4"
 
 
+def _extract_responses_text(resp: Any) -> tuple[str, list[str]]:
+    """Pull assistant text + any tool (UC function) names out of a Mosaic AI
+    Agent Framework (ResponsesAgent) reply. The endpoint is OpenAI-compatible, so
+    the SDK may hand back either a Responses-style `output` list or a
+    chat-completions `choices` list depending on SDK version — handle both, plus
+    the raw-dict shape. Returns (text, tool_names)."""
+    d = resp
+    if hasattr(resp, "as_dict"):
+        try:
+            d = resp.as_dict()
+        except Exception:
+            d = resp
+    if not isinstance(d, dict):
+        # Some SDKs return an object with .output / .choices attributes
+        d = {k: getattr(resp, k) for k in ("output", "choices", "predictions")
+             if getattr(resp, k, None) is not None}
+
+    texts: list[str] = []
+    tools: list[str] = []
+
+    # Responses API shape: {"output": [{type, content|text|name, ...}, ...]}
+    for item in (d.get("output") or []):
+        if not isinstance(item, dict):
+            continue
+        itype = item.get("type", "")
+        if itype in ("function_call", "tool_call") and item.get("name"):
+            tools.append(item["name"])
+        content = item.get("content")
+        if isinstance(content, list):
+            for c in content:
+                if isinstance(c, dict) and c.get("text"):
+                    texts.append(c["text"])
+        elif isinstance(content, str) and content:
+            texts.append(content)
+        elif isinstance(item.get("text"), str) and item["text"]:
+            texts.append(item["text"])
+
+    # Chat-completions shape: {"choices": [{"message": {"content": "..."}}]}
+    for ch in (d.get("choices") or []):
+        msg = (ch or {}).get("message") or {}
+        if msg.get("content"):
+            texts.append(msg["content"])
+        for tc in (msg.get("tool_calls") or []):
+            fn = (tc or {}).get("function") or {}
+            if fn.get("name"):
+                tools.append(fn["name"])
+
+    return ("\n\n".join(t for t in texts if t).strip(), tools)
+
+
 async def _call_supervisor_endpoint(endpoint_name: str, question: str, period: str) -> dict | None:
-    """POST to the Mosaic AI Model Serving endpoint that hosts
-    `agent_workbench_supervisor`. Returns the parsed first-row response, or
-    None if the endpoint isn't reachable. The app proxies to this endpoint
-    when SUPERVISOR_ENDPOINT_NAME is set — Phase 8 wiring.
+    """Query the Mosaic AI Agent Framework endpoint serving the Workbench agent
+    (a ResponsesAgent whose tools are the governed fn_* UC functions). Returns a
+    normalised dict {text, data_sources, model_used, ...} or None if unreachable.
+
+    The app proxies here when SUPERVISOR_ENDPOINT_NAME is set. The framework
+    endpoint is OpenAI-compatible, so we send `messages=[...]` (the period is
+    carried in the user turn) rather than the old pyfunc's dataframe_records.
     """
-    logger.info("Calling supervisor endpoint=%s for question=%r", endpoint_name, question[:80])
+    logger.info("Calling agent endpoint=%s for question=%r", endpoint_name, question[:80])
+    user_content = f"{question}\n\n(Reporting period under review: {period})"
     try:
         from server.config import get_workspace_client
+        from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
         w = get_workspace_client()
 
         # Scale-to-zero: the first query after idle wakes the endpoint and can
         # take 30–90s+. Retry on transient errors so an uncached question waits
-        # for the cold start rather than failing immediately. ~6 attempts over
-        # ~2.5 min total.
+        # for the cold start rather than failing immediately. ~6 attempts / ~2.5 min.
         resp = None
         last_exc: Exception | None = None
         for attempt in range(6):
@@ -694,39 +748,40 @@ async def _call_supervisor_endpoint(endpoint_name: str, question: str, period: s
                 resp = await asyncio.to_thread(
                     w.serving_endpoints.query,
                     name=endpoint_name,
-                    dataframe_records=[{"question": question, "period": period}],
+                    messages=[ChatMessage(role=ChatMessageRole.USER, content=user_content)],
                 )
                 break
             except Exception as e:  # noqa: BLE001 — cold-start / transient
                 last_exc = e
-                logger.info("Supervisor endpoint not ready (attempt %d/6): %s", attempt + 1, str(e)[:160])
+                logger.info("Agent endpoint not ready (attempt %d/6): %s", attempt + 1, str(e)[:160])
                 await asyncio.sleep(25)
         if resp is None:
-            logger.warning("Supervisor endpoint never answered after retries: %s", last_exc)
+            logger.warning("Agent endpoint never answered after retries: %s", last_exc)
             return None
-        # Predictions may be on .predictions, .as_dict()['predictions'], or
-        # in older SDK shapes wrapped as a dataframe split. Handle all three.
-        preds = None
-        if hasattr(resp, "predictions") and resp.predictions is not None:
-            preds = resp.predictions
-        elif hasattr(resp, "as_dict"):
-            preds = resp.as_dict().get("predictions")
-        elif isinstance(resp, dict):
-            preds = resp.get("predictions")
-        logger.info("Supervisor endpoint response type=%s, preds=%r",
-                    type(resp).__name__, (preds[:1] if isinstance(preds, list) else preds))
-        if not preds:
-            logger.warning("Supervisor endpoint returned no predictions: %r", resp)
+
+        text, tool_names = _extract_responses_text(resp)
+        if not text:
+            logger.warning("Agent endpoint returned no text: %r", type(resp).__name__)
             return None
-        first = preds[0] if isinstance(preds, list) else preds
-        if not isinstance(first, dict):
-            logger.warning("Supervisor endpoint prediction shape unexpected: %r", first)
-            return None
-        logger.info("Supervisor endpoint OK: specialist=%s, text_len=%d",
-                    first.get("specialist_key"), len(first.get("text") or ""))
-        return first
+        # The framework agent chooses its own tools; surface the UC functions it
+        # called as the data sources (traceability), falling back to a generic tag.
+        data_sources = tool_names or ["Unity Catalog (fn_* governed functions)"]
+        logger.info("Agent endpoint OK: text_len=%d, tools=%s", len(text), tool_names)
+        return {
+            "text": text,
+            "specialist_key": "general",  # framework agent routes internally via tool-calling
+            "data_sources": data_sources,
+            "model_used": endpoint_name,
+            "confidence": 1.0,
+            "classifier_reason": (
+                f"Mosaic AI Agent Framework — tools called: {', '.join(tool_names)}"
+                if tool_names else "Mosaic AI Agent Framework"
+            ),
+            "cached": False,
+            "baked": False,
+        }
     except Exception:
-        logger.exception("Supervisor endpoint call failed (endpoint=%s)", endpoint_name)
+        logger.exception("Agent endpoint call failed (endpoint=%s)", endpoint_name)
         return None
 
 

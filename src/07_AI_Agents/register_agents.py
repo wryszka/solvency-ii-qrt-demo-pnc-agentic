@@ -1,534 +1,271 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Register supervisor + specialist agents in Unity Catalog
+# MAGIC # Register the Workbench agent on the Mosaic AI Agent Framework
 # MAGIC
-# MAGIC Logs every agent as an `mlflow.pyfunc.PythonModel` under
-# MAGIC `{catalog}.{schema}.agent_*`. Each agent is independently invocable,
-# MAGIC versionable, and traceable via MLflow.
+# MAGIC Authors a single **`ResponsesAgent`** (MLflow 3) — a LangGraph tool-calling
+# MAGIC agent whose tools are the governed `{catalog}.{schema}.fn_*` Unity Catalog
+# MAGIC functions applied by `apply_uc_functions.py`. The LLM decides which
+# MAGIC function(s) to call for each question (this replaces the old hand-rolled
+# MAGIC classifier + per-specialist Python glue), and every call is grounded in a
+# MAGIC real UC function so the answer is traceable.
 # MAGIC
-# MAGIC Agents:
-# MAGIC - `agent_cat_review` — stochastic cat output + event log cross-reference
-# MAGIC - `agent_orsa_narrative` — ORSA section drafting
-# MAGIC - `agent_senior_reserving` — reserving anomalies + overlay proposals
-# MAGIC - `agent_second_opinion` — contrarian what-if review
-# MAGIC - `agent_recon_investigator` — cross-QRT reconciliation root cause
-# MAGIC - `agent_dq_investigator` — data-quality investigation
-# MAGIC - `agent_workbench_supervisor` — classifies + routes to specialists
+# MAGIC Why the framework (not a bespoke `mlflow.pyfunc.PythonModel`):
+# MAGIC - Tools are governed UC functions — the same surface a notebook or another
+# MAGIC   agent can call. Nothing is built twice.
+# MAGIC - Logged with `resources=[...]` so `agents.deploy()` provisions **scoped,
+# MAGIC   automatic auth** for the FM endpoint + each UC function — no baked
+# MAGIC   `DATABRICKS_TOKEN` in the serving container.
+# MAGIC - MLflow tracing + eval hooks are automatic.
 # MAGIC
-# MAGIC Each agent's `predict(model_input)` accepts a single-row DataFrame with
-# MAGIC columns `question, period` and returns a single-row response.
-# MAGIC
-# MAGIC The supervisor invokes specialists in-process (instantiates the class)
-# MAGIC rather than via `mlflow.pyfunc.load_model` — this preserves the
-# MAGIC governance story (each specialist is a registered, versioned, traceable
-# MAGIC UC artefact) without paying 7 cold-start penalties per supervisor call.
+# MAGIC Output: one registered UC model `{catalog}.{schema}.agent_workbench_supervisor`
+# MAGIC (kept name for continuity), aliased `@Production`. `deploy_supervisor_endpoint.py`
+# MAGIC then serves it via `databricks.agents.deploy()`.
 
 # COMMAND ----------
 
 dbutils.widgets.text("catalog_name", "lr_dev_aws_us_catalog", "Catalog")
 dbutils.widgets.text("schema_name",  "solvency2_workbench",   "Schema")
-dbutils.widgets.text("fm_endpoint",  "databricks-claude-sonnet-4", "FM endpoint")
-dbutils.widgets.text("warehouse_id", "a3b61648ea4809e3", "SQL Warehouse ID (for data access from agents)")
-catalog = dbutils.widgets.get("catalog_name")
-schema  = dbutils.widgets.get("schema_name")
-fm_endpoint  = dbutils.widgets.get("fm_endpoint")
-warehouse_id = dbutils.widgets.get("warehouse_id")
+dbutils.widgets.text("fm_endpoint",  "databricks-claude-sonnet-5", "FM endpoint")
+dbutils.widgets.text("model_name",   "agent_workbench_supervisor", "Registered model name")
+catalog    = dbutils.widgets.get("catalog_name")
+schema     = dbutils.widgets.get("schema_name")
+fm_endpoint = dbutils.widgets.get("fm_endpoint")
+model_name = dbutils.widgets.get("model_name")
+full_model = f"{catalog}.{schema}.{model_name}"
 print(f"Catalog/schema: {catalog}.{schema}")
 print(f"FM endpoint:    {fm_endpoint}")
-print(f"Warehouse:      {warehouse_id}")
+print(f"Model:          {full_model}")
 
 # COMMAND ----------
 
-# MAGIC %pip install -q mlflow>=2.16 databricks-sdk databricks-sql-connector pandas
+# MAGIC %pip install -q -U mlflow>=3.1 databricks-langchain langgraph databricks-agents unitycatalog-ai[databricks] pydantic>=2
 # dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import mlflow, os, json, re
-mlflow.set_registry_uri("databricks-uc")
+# The governed UC functions that become the agent's tools. These are created by
+# apply_uc_functions.py (run as the prior task in ai_agents_job.yml). We expose
+# the read/query functions only — the cache_* functions are app-internal
+# plumbing, not agent tools.
+TOOL_FUNCTIONS = [
+    "fn_close_status",
+    "fn_model_status",
+    "fn_overlays_recent",
+    "fn_reserving_anomalies",
+    "fn_event_log_lookup",
+    "fn_feed_status",
+    "fn_recon_status",
+    "fn_dq_status",
+    "fn_orsa_stress_state",
+    "fn_solvency_history",
+    "fn_qrt_audit_snapshot",
+    "fn_approvals_pending",
+    "fn_archive_lookup",
+]
+UC_FUNCTION_FQNS = [f"{catalog}.{schema}.{fn}" for fn in TOOL_FUNCTIONS]
+DEFAULT_PERIOD = "2025-Q4"
 
 # COMMAND ----------
 
-# MAGIC %md ## Shared agent base class
+# MAGIC %md ## Author the ResponsesAgent (written to a temp file, logged via "models from code")
 
 # COMMAND ----------
 
-AGENTS_PYFILE = "/tmp/workbench_agents.py"
+# Write the agent to a UNIQUE per-run temp path. A fixed /tmp path collides with a
+# leftover file owned by a different identity on shared serverless compute →
+# PermissionError [Errno 13] on the second run. mkdtemp() gives a fresh writable
+# dir every run; the basename (agent.py) stays stable so "models from code" logging
+# resolves. (Same hard-won pattern as the previous build.)
+import tempfile as _tempfile, os as _os
+AGENT_DIR = _tempfile.mkdtemp(prefix="wb_agent_")
+AGENT_PYFILE = _os.path.join(AGENT_DIR, "agent.py")
 
-with open(AGENTS_PYFILE, "w") as f:
-    f.write('''"""Specialist agents — shared module.
+# Config the agent needs at import time is injected via sentinel replacement
+# (str.replace, not .format — the agent body is full of braces).
+_AGENT_SRC = '''"""Bricksurance Solvency II Workbench agent — Mosaic AI Agent Framework.
 
-Each class is a self-contained mlflow.pyfunc.PythonModel subclass with its own
-prompt + data shape. The supervisor agent imports + instantiates all of them
-in-process. Each class is independently loggable to UC as an agent_* model.
+A LangGraph tool-calling ResponsesAgent. Tools are governed Unity Catalog
+functions (fn_*); the LLM chooses which to call. Advises, never decides:
+it proposes overlays but never writes or approves them.
 """
-import json
-import os
-import re
-import hashlib
-from typing import Any
+import mlflow
+from mlflow.pyfunc import ResponsesAgent
+from mlflow.types.responses import (
+    ResponsesAgentRequest, ResponsesAgentResponse, ResponsesAgentStreamEvent,
+    output_to_responses_items_stream, to_chat_completions_input,
+)
+from databricks_langchain import ChatDatabricks, UCFunctionToolkit
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt.tool_node import ToolNode
+from typing import Annotated, Generator, Sequence, TypedDict
+
+LLM_ENDPOINT = "@@FM_ENDPOINT@@"
+UC_FUNCTIONS = @@UC_FUNCTIONS@@
+DEFAULT_PERIOD = "@@DEFAULT_PERIOD@@"
+
+SYSTEM_PROMPT = (
+    "You are the Bricksurance Solvency II Workbench agent, assisting the "
+    "actuarial and capital team through the quarterly close. Bricksurance SE is a "
+    "synthetic European composite insurer; all data is synthetic.\\n\\n"
+    "You have governed Unity Catalog function tools. GROUND EVERY ANSWER in data "
+    "you fetch with them — never invent numbers. Cite the function or table you "
+    "used for each fact. If a tool returns no rows, say so plainly.\\n\\n"
+    "The reporting period under review is " + DEFAULT_PERIOD + " unless the user "
+    "names another. Quarters look like '2025-Q4'; the prior quarter of 2025-Q4 is "
+    "2025-Q3.\\n\\n"
+    "Tool guidance:\\n"
+    "- Cat / storm / Igloo / S.26.06 losses -> fn_event_log_lookup (date range) to "
+    "cross-reference the external event log; name the events and dates.\\n"
+    "- Reserving / triangle / IBNR / LoB movement -> fn_reserving_anomalies(prior, "
+    "current) and fn_overlays_recent(quarter). Surface the 1-3 most material "
+    "movements with numbers, then propose a candidate overlay (model, LoB, "
+    "magnitude EUR, direction, category, rationale).\\n"
+    "- ORSA / stress / scenario / capital path -> fn_orsa_stress_state(period).\\n"
+    "- Reconciliation / cross-QRT mismatch -> fn_recon_status(period); for each "
+    "break give cells, magnitude, likely cause, resolution step.\\n"
+    "- Data quality / late feed / quarantine / expectation -> fn_dq_status(period) "
+    "and fn_feed_status(period).\\n"
+    "- Model promotion / champion-challenger -> fn_model_status(model_name).\\n"
+    "- Audit / who signed off / overlays applied -> fn_qrt_audit_snapshot(qrt, "
+    "period).\\n"
+    "- Solvency trend -> fn_solvency_history(days).\\n"
+    "- 'Where are we / what's outstanding' -> fn_close_status(period) and "
+    "fn_approvals_pending(period).\\n\\n"
+    "GOVERNANCE (hard rules): You ADVISE; humans decide. You never create, edit, "
+    "or approve an overlay or a model promotion — the Overlays Register UI and a "
+    "human sign-off do that. When you propose a reserving overlay, end with "
+    "exactly: 'This decision is yours.' Do not claim to have filed, submitted, or "
+    "approved anything with a regulator."
+)
+
+
+class State(TypedDict):
+    messages: Annotated[Sequence, add_messages]
+
+
+class WorkbenchAgent(ResponsesAgent):
+    def __init__(self):
+        self.llm = ChatDatabricks(endpoint=LLM_ENDPOINT, temperature=0.1)
+        self.tools = list(UCFunctionToolkit(function_names=UC_FUNCTIONS).tools)
+        self.llm_with_tools = self.llm.bind_tools(self.tools)
+
+    def _graph(self):
+        def call_model(state):
+            msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + list(state["messages"])
+            return {"messages": [self.llm_with_tools.invoke(msgs)]}
+
+        def should_continue(state):
+            last = state["messages"][-1]
+            return "tools" if isinstance(last, AIMessage) and last.tool_calls else "end"
+
+        g = StateGraph(State)
+        g.add_node("agent", RunnableLambda(call_model))
+        g.add_node("tools", ToolNode(self.tools))
+        g.set_entry_point("agent")
+        g.add_conditional_edges("agent", should_continue, {"tools": "tools", "end": END})
+        g.add_edge("tools", "agent")
+        return g.compile()
+
+    def predict_stream(
+        self, req: ResponsesAgentRequest
+    ) -> Generator[ResponsesAgentStreamEvent, None, None]:
+        msgs = to_chat_completions_input([m.model_dump() for m in req.input])
+        for kind, payload in self._graph().stream({"messages": msgs}, stream_mode=["updates"]):
+            if kind != "updates":
+                continue
+            for node in payload.values():
+                if node.get("messages"):
+                    yield from output_to_responses_items_stream(node["messages"])
+
+    def predict(self, req: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        items = [
+            ev.item for ev in self.predict_stream(req)
+            if ev.type == "response.output_item.done"
+        ]
+        return ResponsesAgentResponse(output=items)
+
+
+mlflow.langchain.autolog()
+mlflow.models.set_model(WorkbenchAgent())
+'''
+
+_src = (
+    _AGENT_SRC
+    .replace("@@FM_ENDPOINT@@", fm_endpoint)
+    .replace("@@UC_FUNCTIONS@@", repr(UC_FUNCTION_FQNS))
+    .replace("@@DEFAULT_PERIOD@@", DEFAULT_PERIOD)
+)
+with open(AGENT_PYFILE, "w") as f:
+    f.write(_src)
+print(f"Wrote agent to {AGENT_PYFILE}")
+
+# COMMAND ----------
+
+# MAGIC %md ## Log with resources (auto-auth), register to UC, validate, alias
+
+# COMMAND ----------
 
 import mlflow
-import pandas as pd
-
-
-# ── FM API helper ───────────────────────────────────────────────────────────
-
-def call_fm(messages: list, endpoint: str, max_tokens: int = 800) -> tuple[str, str, int, int]:
-    """Call a Databricks Foundation Model serving endpoint. Returns
-    (text, model_used, input_tokens, output_tokens)."""
-    from databricks.sdk import WorkspaceClient
-    from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
-    w = WorkspaceClient()
-    chat_messages = [
-        ChatMessage(role=ChatMessageRole.SYSTEM if m["role"] == "system" else ChatMessageRole.USER,
-                    content=m["content"])
-        for m in messages
-    ]
-    r = w.serving_endpoints.query(name=endpoint, messages=chat_messages,
-                                  max_tokens=max_tokens, temperature=0.2)
-    choice = r.choices[0] if r.choices else None
-    text = (choice.message.content if choice and choice.message else "") or ""
-    usage = r.usage
-    return text, endpoint, (usage.prompt_tokens if usage else 0), (usage.completion_tokens if usage else 0)
-
-
-# ── SQL helper (Databricks SQL connector — no Spark needed at serve time) ───
-
-def run_sql(sql: str, params: list | None = None) -> list[dict]:
-    from databricks import sql as dbsql
-    host = os.environ.get("DATABRICKS_HOST", "").replace("https://", "")
-    warehouse = os.environ.get("WAREHOUSE_HTTP_PATH", "")
-    token = os.environ.get("DATABRICKS_TOKEN", "")
-    if not host or not warehouse:
-        return []
-    with dbsql.connect(server_hostname=host, http_path=warehouse,
-                       access_token=token) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, params or {})
-            cols = [c[0] for c in cur.description] if cur.description else []
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
-
-
-def fqn(catalog: str, schema: str, table: str) -> str:
-    return f"`{catalog}`.`{schema}`.`{table}`"
-
-
-# ── Base specialist agent ───────────────────────────────────────────────────
-
-class BaseSpecialistAgent(mlflow.pyfunc.PythonModel):
-    """Subclasses set NAME, SCOPE, DATA_SOURCES, SYSTEM_PROMPT, fetch(), format_user_prompt()."""
-    NAME = "BaseSpecialist"
-    SCOPE = ""
-    DATA_SOURCES: list[str] = []
-    SYSTEM_PROMPT = ""
-
-    def load_context(self, context):
-        self._catalog = os.environ.get("CATALOG_NAME", "lr_dev_aws_us_catalog")
-        self._schema  = os.environ.get("SCHEMA_NAME",  "solvency2_workbench")
-        self._fm      = os.environ.get("FM_ENDPOINT",  "databricks-claude-sonnet-4")
-
-    def fetch(self, question: str, period: str) -> dict[str, Any]:
-        return {}
-
-    def format_user_prompt(self, question: str, period: str, data: dict) -> str:
-        return f"Question: {question}\\n\\nPeriod: {period}\\n\\nData:\\n{json.dumps(data, default=str, indent=2)[:4000]}"
-
-    def predict(self, context, model_input):
-        if hasattr(model_input, "to_dict"):
-            rows = model_input.to_dict(orient="records")
-        elif isinstance(model_input, list):
-            rows = model_input
-        elif isinstance(model_input, dict):
-            rows = [model_input]
-        else:
-            rows = [{"question": str(model_input), "period": "2025-Q4"}]
-        results = []
-        for r in rows:
-            question = r.get("question", "")
-            period = r.get("period", "2025-Q4")
-            with mlflow.start_span(name=f"{self.NAME}.predict") as span:
-                span.set_attribute("question", question)
-                span.set_attribute("period", period)
-                data = self.fetch(question, period)
-                user_prompt = self.format_user_prompt(question, period, data)
-                text, model_used, inp_tok, out_tok = call_fm(
-                    [{"role": "system", "content": self.SYSTEM_PROMPT},
-                     {"role": "user", "content": user_prompt}],
-                    endpoint=self._fm, max_tokens=900,
-                )
-                span.set_attribute("model_used", model_used)
-                results.append({
-                    "agent": self.NAME,
-                    "text": text,
-                    "data_sources": self.DATA_SOURCES,
-                    "model_used": model_used,
-                    "input_tokens": inp_tok,
-                    "output_tokens": out_tok,
-                })
-        return pd.DataFrame(results)
-
-
-# ── Specialist 1: Cat ───────────────────────────────────────────────────────
-
-class CatAgent(BaseSpecialistAgent):
-    NAME = "agent_cat_review"
-    SCOPE = "Stochastic cat output review, event log cross-reference."
-    DATA_SOURCES = ["fn_event_log_lookup", "2_stg_cat_risk_by_lob"]
-    SYSTEM_PROMPT = (
-        "You are the Cat Modelling Agent. You review the stochastic catastrophe "
-        "output from the Igloo engine against the external event log and quote "
-        "specific events that drove the modelled loss. End with a recommendation: "
-        "Accept / Re-run with adjusted assumption / Escalate."
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        events = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_event_log_lookup')}('2025-09-01', '2026-01-01')")
-        return {"events": events[:6]}
-
-
-# ── Specialist 2: ORSA narrative ────────────────────────────────────────────
-
-class OrsaNarrativeAgent(BaseSpecialistAgent):
-    NAME = "agent_orsa_narrative"
-    SCOPE = "ORSA section drafting, board narrative, stress commentary."
-    DATA_SOURCES = ["fn_orsa_stress_state"]
-    SYSTEM_PROMPT = (
-        "You are the ORSA Narrative Agent. You draft commentary for ORSA "
-        "scenarios — board-paper grade. Cite the actual numbers from the data "
-        "block. Length: 200-300 words."
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        rows = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_orsa_stress_state')}('{period}')")
-        return {"results": rows[:40]}
-
-
-# ── Specialist 3: Senior reserving ──────────────────────────────────────────
-
-class SeniorReservingAgent(BaseSpecialistAgent):
-    NAME = "agent_senior_reserving"
-    SCOPE = "Reserving anomaly detection, overlay proposals."
-    DATA_SOURCES = ["fn_reserving_anomalies", "fn_overlays_recent"]
-    SYSTEM_PROMPT = (
-        "You are the Senior Reserving Actuary. You surface reserving anomalies "
-        "between quarters and propose overlays for the human actuary to consider. "
-        "You do NOT create overlays — only the Overlays Register UI does that. "
-        "End with: 'This decision is yours.'"
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        prior = _prior_period(period)
-        moves = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_reserving_anomalies')}('{prior}', '{period}')")
-        overlays = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_overlays_recent')}('{period}')")
-        return {"prior_period": prior, "movements": moves[:6], "existing_overlays": overlays}
-
-
-# ── Specialist 4: Second opinion ────────────────────────────────────────────
-
-class SecondOpinionAgent(BaseSpecialistAgent):
-    NAME = "agent_second_opinion"
-    SCOPE = "Contrarian review of strategic what-if scenarios."
-    DATA_SOURCES = ["6_demo_whatif_runs"]
-    SYSTEM_PROMPT = (
-        "You are the Contrarian Capital Reviewer. You pressure-test scenario "
-        "assumptions before they reach a board paper. Surface 2-4 specific "
-        "evidence-based pushbacks. Each pushback cites a data source. End with "
-        "one constructive recommendation."
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        runs = run_sql(f"SELECT scenario_label, result_json, ran_at FROM {fqn(c, s, '6_demo_whatif_runs')} ORDER BY ran_at DESC LIMIT 3")
-        return {"recent_whatif_runs": runs}
-
-
-# ── Specialist 5: Recon investigator ────────────────────────────────────────
-
-class ReconInvestigatorAgent(BaseSpecialistAgent):
-    NAME = "agent_recon_investigator"
-    SCOPE = "Cross-QRT reconciliation gap explanation."
-    DATA_SOURCES = ["fn_recon_status"]
-    SYSTEM_PROMPT = (
-        "You are the Recon Investigator. For each cross-QRT mismatch, give the "
-        "source/target cell, magnitude, likely cause (timing, classification, "
-        "unit, methodology), and the resolution step. If all checks MATCH, say "
-        "so plainly with the count."
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        checks = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_recon_status')}('{period}')")
-        return {"checks": checks}
-
-
-# ── Specialist 6: DQ investigator ───────────────────────────────────────────
-
-class DqInvestigatorAgent(BaseSpecialistAgent):
-    NAME = "agent_dq_investigator"
-    SCOPE = "Data quality root cause: failing expectations, late feeds, schema drift."
-    DATA_SOURCES = ["fn_feed_status", "fn_dq_status"]
-    SYSTEM_PROMPT = (
-        "You are the DQ Investigator. Explain data quality failures across the "
-        "ingestion pipelines. Cite specific feeds + expectation names. Who owns "
-        "it; what's next?"
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        feeds = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_feed_status')}('{period}')")
-        dq = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_dq_status')}('{period}')")
-        return {"feeds": feeds, "failing_dq": dq}
-
-
-# ── Specialist 7: General Workbench (operational state) ─────────────────────
-
-class GeneralWorkbenchAgent(BaseSpecialistAgent):
-    NAME = "agent_general_workbench"
-    SCOPE = "Operational state: feeds, promotions, overlays, approvals."
-    DATA_SOURCES = ["fn_close_status", "fn_feed_status", "fn_approvals_pending"]
-    SYSTEM_PROMPT = (
-        "You are the General Workbench agent. You answer operational \\"where are "
-        "we?\\" questions about Q4 close — feeds, model promotions, overlays, "
-        "approvals. Cite the source table for every fact. Keep under 200 words. "
-        "Use markdown."
-    )
-
-    def fetch(self, question, period):
-        c, s = self._catalog, self._schema
-        feeds = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_feed_status')}('{period}')")
-        approvals = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_approvals_pending')}('{period}')")
-        overlays = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_overlays_recent')}('{period}')")
-        return {"feeds": feeds, "pending_approvals": approvals, "overlays": overlays}
-
-
-# ── Supervisor ──────────────────────────────────────────────────────────────
-
-SUPERVISOR_CLASSIFIER_PROMPT = """You are a routing classifier. Given a user
-question about a Solvency II reporting cycle, pick ONE specialist from the
-catalogue who is best positioned to answer.
-
-Reply with ONLY a JSON object on a single line:
-{"specialist_key": "<key>", "confidence": <0-1>, "reason": "<one short sentence>"}
-
-If unsure, pick 'general'. If purely numeric data query, pick 'genie'."""
-
-
-class SupervisorAgent(mlflow.pyfunc.PythonModel):
-    NAME = "agent_workbench_supervisor"
-    SPECIALISTS_CLS = {
-        "cat":             CatAgent,
-        "orsa":            OrsaNarrativeAgent,
-        "reserving":       SeniorReservingAgent,
-        "second_opinion":  SecondOpinionAgent,
-        "recon":           ReconInvestigatorAgent,
-        "dq":              DqInvestigatorAgent,
-        "general":         GeneralWorkbenchAgent,
-        "genie":           GeneralWorkbenchAgent,
-    }
-    CATALOGUE_TEXT = (
-        "- cat: Cat Modelling Agent. Triggers: Igloo, cat losses, storm impact, S.26.06.\\n"
-        "- orsa: ORSA Narrative Agent. Triggers: ORSA, stress, scenario, board paper.\\n"
-        "- reserving: Senior Reserving Actuary. Triggers: reserves, triangle, LoB movement.\\n"
-        "- second_opinion: Contrarian Reviewer. Triggers: what-if, scenario assumption.\\n"
-        "- recon: Recon Investigator. Triggers: reconciliation, mismatch.\\n"
-        "- dq: DQ Investigator. Triggers: DQ, late feed, quarantined, expectation.\\n"
-        "- genie: Free-form SQL. Triggers: show me, count, sum, by LoB.\\n"
-        "- general: Operational state. Triggers: outstanding, status, what's left."
-    )
-
-    def load_context(self, context):
-        self._catalog = os.environ.get("CATALOG_NAME", "lr_dev_aws_us_catalog")
-        self._schema  = os.environ.get("SCHEMA_NAME",  "solvency2_workbench")
-        self._fm      = os.environ.get("FM_ENDPOINT",  "databricks-claude-sonnet-4")
-        self._specialists = {}
-        for key, cls in self.SPECIALISTS_CLS.items():
-            agent = cls()
-            agent.load_context(context)
-            self._specialists[key] = agent
-
-    def _classify(self, question: str) -> dict:
-        try:
-            user = f"Available specialists:\\n{self.CATALOGUE_TEXT}\\n\\nUser question:\\n{question}\\n\\nReturn the JSON object."
-            text, _, _, _ = call_fm(
-                [{"role": "system", "content": SUPERVISOR_CLASSIFIER_PROMPT},
-                 {"role": "user",   "content": user}],
-                endpoint=self._fm, max_tokens=120,
-            )
-            m = re.search(r"\\{[^{}]+\\}", text)
-            if not m:
-                return {"specialist_key": "general", "confidence": 0.0, "reason": "no-json"}
-            obj = json.loads(m.group(0))
-            key = obj.get("specialist_key", "general")
-            if key not in self.SPECIALISTS_CLS and key not in ("genie", "general"):
-                key = "general"
-            return {"specialist_key": key, "confidence": float(obj.get("confidence", 0.5)),
-                    "reason": str(obj.get("reason", ""))[:240]}
-        except Exception as exc:
-            return {"specialist_key": "general", "confidence": 0.0, "reason": f"classifier-failed: {exc}"}
-
-    def _cache_lookup(self, question: str):
-        try:
-            c, s = self._catalog, self._schema
-            rows = run_sql(f"SELECT * FROM {fqn(c, s, 'fn_cache_lookup')}(?)", [question])
-            if rows:
-                payload = json.loads(rows[0]["output_json"] or "{}")
-                payload["_cached_at"] = str(rows[0].get("cached_at"))
-                payload["_cache_key"] = rows[0].get("cache_key")
-                return payload
-        except Exception:
-            return None
-        return None
-
-    def predict(self, context, model_input):
-        if hasattr(model_input, "to_dict"):
-            rows = model_input.to_dict(orient="records")
-        elif isinstance(model_input, list):
-            rows = model_input
-        elif isinstance(model_input, dict):
-            rows = [model_input]
-        else:
-            rows = [{"question": str(model_input), "period": "2025-Q4"}]
-        outs = []
-        for r in rows:
-            question = r.get("question", "")
-            period = r.get("period", "2025-Q4")
-            with mlflow.start_span(name="supervisor.predict") as span:
-                span.set_attribute("question", question)
-                # 1. Cache lookup
-                cached = self._cache_lookup(question)
-                if cached and cached.get("answer"):
-                    outs.append({
-                        "agent": "agent_workbench_supervisor",
-                        "specialist_key": cached.get("specialist_key", "general"),
-                        "text": cached["answer"],
-                        "data_sources": cached.get("data_sources", []),
-                        "model_used": cached.get("model_used", "cached"),
-                        "cached": True, "baked": cached.get("baked", False),
-                        "confidence": cached.get("confidence", 1.0),
-                        "classifier_reason": cached.get("classifier_reason", "from cache"),
-                    })
-                    continue
-                # 2. Classify
-                cls = self._classify(question)
-                span.set_attribute("specialist_key", cls["specialist_key"])
-                # 3. Invoke specialist (in-process — each is a registered UC agent)
-                specialist = self._specialists.get(cls["specialist_key"])
-                if specialist is None:
-                    # general / genie / unknown — return a clarifying answer
-                    outs.append({
-                        "agent": "agent_workbench_supervisor",
-                        "specialist_key": cls["specialist_key"],
-                        "text": (
-                            "I'd route this to Genie or general workbench tools, "
-                            "but those aren't wired into this agent endpoint yet. "
-                            "Try a more specific question — e.g. 'why did property "
-                            "reserves move?' or 'what did the cat agent say about Igloo output?'"
-                        ),
-                        "data_sources": [], "model_used": "supervisor",
-                        "cached": False, "baked": False,
-                        "confidence": cls["confidence"], "classifier_reason": cls["reason"],
-                    })
-                    continue
-                resp = specialist.predict(context, pd.DataFrame([{"question": question, "period": period}]))
-                row = resp.iloc[0].to_dict()
-                outs.append({
-                    "agent": "agent_workbench_supervisor",
-                    "specialist_key": cls["specialist_key"],
-                    "text": row["text"],
-                    "data_sources": row["data_sources"],
-                    "model_used": row["model_used"],
-                    "cached": False, "baked": False,
-                    "confidence": cls["confidence"], "classifier_reason": cls["reason"],
-                })
-        return pd.DataFrame(outs)
-
-
-def _prior_period(period: str) -> str:
-    try:
-        year, q = period.split("-Q"); y, qn = int(year), int(q)
-        return f"{y-1}-Q4" if qn == 1 else f"{y}-Q{qn-1}"
-    except Exception:
-        return period
-''')
-print("Wrote agents module")
-
-# COMMAND ----------
-
-# Import the shared module
-import importlib.util
-spec = importlib.util.spec_from_file_location("workbench_agents", AGENTS_PYFILE)
-mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-print("Loaded:", [c.__name__ for c in (
-    mod.CatAgent, mod.OrsaNarrativeAgent, mod.SeniorReservingAgent,
-    mod.SecondOpinionAgent, mod.ReconInvestigatorAgent, mod.DqInvestigatorAgent,
-    mod.SupervisorAgent,
-)])
-
-# COMMAND ----------
-
-# MAGIC %md ## Log + register each agent in UC
-
-# COMMAND ----------
-
-import pandas as pd
-input_example = pd.DataFrame([{"question": "What is outstanding for Q4 close?", "period": "2025-Q4"}])
-
-PIP_REQS = ["mlflow>=2.16", "databricks-sdk", "databricks-sql-connector", "pandas"]
-SPECIALIST_CLASSES = {
-    "agent_cat_review":         mod.CatAgent,
-    "agent_orsa_narrative":     mod.OrsaNarrativeAgent,
-    "agent_senior_reserving":   mod.SeniorReservingAgent,
-    "agent_second_opinion":     mod.SecondOpinionAgent,
-    "agent_recon_investigator": mod.ReconInvestigatorAgent,
-    "agent_dq_investigator":    mod.DqInvestigatorAgent,
-    "agent_general_workbench":  mod.GeneralWorkbenchAgent,
-}
-
-for uc_name, cls in SPECIALIST_CLASSES.items():
-    full = f"{catalog}.{schema}.{uc_name}"
-    with mlflow.start_run(run_name=uc_name) as run:
-        mlflow.pyfunc.log_model(
-            artifact_path=uc_name,
-            python_model=cls(),
-            code_paths=[AGENTS_PYFILE],
-            pip_requirements=PIP_REQS,
-            input_example=input_example,
-            registered_model_name=full,
-        )
-    print(f"Registered {full}")
-
-# Supervisor
-with mlflow.start_run(run_name="agent_workbench_supervisor") as run:
-    mlflow.pyfunc.log_model(
-        artifact_path="agent_workbench_supervisor",
-        python_model=mod.SupervisorAgent(),
-        code_paths=[AGENTS_PYFILE],
-        pip_requirements=PIP_REQS,
-        input_example=input_example,
-        registered_model_name=f"{catalog}.{schema}.agent_workbench_supervisor",
-    )
-print(f"Registered {catalog}.{schema}.agent_workbench_supervisor")
-
-# COMMAND ----------
-
-# MAGIC %md ## Tag latest version of each with @Production alias
-
-# COMMAND ----------
-
+from mlflow.models.resources import DatabricksServingEndpoint, DatabricksFunction
 from mlflow.tracking import MlflowClient
-client = MlflowClient()
-ALL_AGENTS = list(SPECIALIST_CLASSES) + ["agent_workbench_supervisor"]
-for name in ALL_AGENTS:
-    full = f"{catalog}.{schema}.{name}"
-    versions = client.search_model_versions(f"name='{full}'")
-    if not versions:
-        continue
-    latest = max(versions, key=lambda v: int(v.version))
-    client.set_registered_model_alias(name=full, alias="Production", version=latest.version)
-    print(f"{full} v{latest.version} → @Production")
 
-print("\nAll agents registered + tagged @Production.")
+mlflow.set_registry_uri("databricks-uc")
+
+# resources=[...] is what gives the deployed endpoint scoped credentials for the
+# FM endpoint + each UC function. WITHOUT it, every query returns PERMISSION_DENIED
+# with no useful error. This is also what removes the need to bake a token.
+resources = [
+    DatabricksServingEndpoint(endpoint_name=fm_endpoint),
+    *[DatabricksFunction(function_name=fqn) for fqn in UC_FUNCTION_FQNS],
+]
+
+input_example = {"input": [{"role": "user", "content": "What is outstanding for the Q4 close?"}]}
+
+PIP_REQS = [
+    "mlflow>=3.1",
+    "databricks-langchain",
+    "langgraph",
+    "databricks-agents",
+    "unitycatalog-ai[databricks]",
+    "pydantic>=2",
+]
+
+with mlflow.start_run(run_name="workbench_agent"):
+    info = mlflow.pyfunc.log_model(
+        name="agent",
+        python_model=AGENT_PYFILE,           # models-from-code: file path, not an instance
+        resources=resources,                  # auto-auth — DO NOT skip
+        input_example=input_example,
+        pip_requirements=PIP_REQS,
+        registered_model_name=full_model,
+    )
+print(f"Logged + registered {full_model} ({info.model_uri})")
+
+# COMMAND ----------
+
+# Pre-deploy validation — rebuild the env and run one request so failures surface
+# here (in the job) rather than at the serving endpoint 15 min later.
+import mlflow
+try:
+    mlflow.models.predict(
+        model_uri=info.model_uri,
+        input_data={"input": [{"role": "user", "content": "ping"}]},
+        env_manager="uv",
+    )
+    print("Pre-deploy validation OK")
+except Exception as _e:
+    print(f"(pre-deploy validation raised — inspect before deploy: {_e})")
+
+# COMMAND ----------
+
+# Alias the version we just registered @Production for governance visibility and
+# to give deploy_supervisor_endpoint.py a deterministic version to serve.
+client = MlflowClient(registry_uri="databricks-uc")
+versions = client.search_model_versions(f"name='{full_model}'")
+latest = max(versions, key=lambda v: int(v.version))
+client.set_registered_model_alias(full_model, "Production", int(latest.version))
+print(f"{full_model} v{latest.version} -> @Production")
+dbutils.notebook.exit(f"{full_model}:{latest.version}")

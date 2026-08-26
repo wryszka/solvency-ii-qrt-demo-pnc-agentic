@@ -15,6 +15,7 @@ import {
   Code2, Cpu, ChevronRight, BookOpen,
 } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
+import { IllustrativeBadge, IllustrativeEngineNote } from '../components/IllustrativeBadge';
 import { fetchLabModels, fetchGovernanceSummary, type LabModelRow } from '../lib/api';
 
 function engineBadge(engine: string, tag: 'native' | 'external') {
@@ -23,8 +24,11 @@ function engineBadge(engine: string, tag: 'native' | 'external') {
     : 'bg-purple-50 text-purple-700 border-purple-200';
   const Icon = tag === 'native' ? Code2 : Cpu;
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border ${cls}`}>
-      <Icon className="w-3 h-3" /> {engine}
+    <span className="inline-flex items-center gap-1.5 flex-wrap">
+      <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border ${cls}`}>
+        <Icon className="w-3 h-3" /> {engine}
+      </span>
+      {tag === 'external' && <IllustrativeBadge title={`${engine} output is pre-computed sample data — not a live engine run`} />}
     </span>
   );
 }
@@ -75,6 +79,10 @@ export default function ActuarialLab() {
           Run them as-is or adapt to your validated methodology.
         </span>
       </div>
+
+      {rows.some((r) => r.engine_tag === 'external') && (
+        <IllustrativeEngineNote engine="external-engine (Prophet, Igloo)" />
+      )}
 
       {summary && (
         <div className="grid grid-cols-3 gap-3">

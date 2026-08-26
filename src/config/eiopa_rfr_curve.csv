@@ -1,0 +1,19 @@
+# EIOPA risk-free interest-rate term structure — ILLUSTRATIVE calibration (EUR).
+# Solvency II best-estimate liabilities are discounted on the EIOPA risk-free
+# term structure r(t), NOT a flat rate. This is a synthetic, upward-sloping
+# stand-in for the published EIOPA RFR (basic curve, no VA); a real deployment
+# points the life model at the actual monthly EIOPA publication.
+# Source of record for the curve embedded in reserving_life params.
+# Rates between listed maturities are linearly interpolated; beyond the last
+# point the final rate is held flat (flat extrapolation).
+maturity_years,rate_pct
+1,2.00
+2,2.10
+3,2.20
+4,2.30
+5,2.40
+7,2.55
+10,2.70
+15,2.85
+20,2.95
+30,3.00

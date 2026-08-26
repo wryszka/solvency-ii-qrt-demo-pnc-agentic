@@ -25,6 +25,7 @@ import {
 import SeniorReservingPanel from '../components/SeniorReservingPanel';
 import SfChallengerPanel from '../components/SfChallengerPanel';
 import CatAgentPanel from '../components/CatAgentPanel';
+import { IllustrativeBadge, IllustrativeEngineNote } from '../components/IllustrativeBadge';
 
 type Tab = 'versions' | 'diagnostics' | 'approvals' | 'lineage' | 'promote';
 
@@ -82,7 +83,12 @@ export default function LabModelDetail() {
       <div className="flex items-start gap-3">
         <Beaker className="w-6 h-6 text-violet-700 mt-0.5" />
         <div className="flex-1">
-          <h2 className="text-2xl font-bold text-gray-900">{detail.label}</h2>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2 flex-wrap">
+            {detail.label}
+            {detail.engine_tag === 'external' && (
+              <IllustrativeBadge title={`${detail.engine} output is pre-computed sample data — not a live engine run`} />
+            )}
+          </h2>
           <div className="text-sm text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
             <span className="font-mono">{detail.model_id}</span>
             <span className="text-gray-300">·</span>
@@ -117,6 +123,8 @@ export default function LabModelDetail() {
           <AlertTriangle className="w-3.5 h-3.5 inline mr-1" /> {state.error}
         </div>
       )}
+
+      {detail.engine_tag === 'external' && <IllustrativeEngineNote engine={detail.engine} />}
 
       <div className="border-b border-gray-200 flex gap-1">
         {TABS.map(({ id, label, icon: Icon }) => (

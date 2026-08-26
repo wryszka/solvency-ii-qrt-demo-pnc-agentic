@@ -41,8 +41,8 @@ AI_GATEWAY_ENDPOINT = os.getenv("AI_GATEWAY_ENDPOINT", "")
 #
 # The app probes each endpoint in order and uses the first one that's READY.
 _FM_DEFAULT = [
+    "databricks-claude-sonnet-5",
     "databricks-claude-sonnet-4",
-    "databricks-claude-3-7-sonnet",
     "databricks-meta-llama-3-3-70b-instruct",
 ]
 _FM_ENV = os.getenv("FM_MODEL_ENDPOINTS", "").strip()
@@ -100,15 +100,23 @@ def _call_llm(system_prompt: str, user_prompt: str, agent_name: str = "unknown")
     client = get_workspace_client()
     endpoint = _find_endpoint(client)
 
-    response = client.serving_endpoints.query(
-        name=endpoint,
-        messages=[
-            ChatMessage(role=ChatMessageRole.SYSTEM, content=system_prompt),
-            ChatMessage(role=ChatMessageRole.USER, content=user_prompt),
-        ],
-        max_tokens=2048,
-        temperature=0.2,
-    )
+    _msgs = [
+        ChatMessage(role=ChatMessageRole.SYSTEM, content=system_prompt),
+        ChatMessage(role=ChatMessageRole.USER, content=user_prompt),
+    ]
+    # Newer Claude models (Sonnet 5 / Opus 4.x) reject the temperature param;
+    # older models + Llama honour it. Try with, fall back without on that error.
+    try:
+        response = client.serving_endpoints.query(
+            name=endpoint, messages=_msgs, max_tokens=2048, temperature=0.2,
+        )
+    except Exception as exc:
+        if "temperature" in str(exc).lower():
+            response = client.serving_endpoints.query(
+                name=endpoint, messages=_msgs, max_tokens=2048,
+            )
+        else:
+            raise
 
     text = ""
     if response.choices:
@@ -161,101 +169,12 @@ async def generate_review(
     return await asyncio.to_thread(_call_llm_traced, system_prompt, user_prompt, agent_name)
 
 
-# ── Tool calling support (for supervisor agent) ──────────────────────────────
-
-def _call_llm_with_tools(
-    messages: list,
-    tools: list,
-    agent_name: str = "supervisor",
-    max_tokens: int = 2048,
-) -> dict:
-    """Call LLM with tool definitions. Returns the raw response message dict.
-
-    messages: list of {"role": "...", "content": "..."} or with tool_calls / tool_call_id
-    tools: list of {"type": "function", "function": {...}} OpenAI-style tool defs
-    """
-    client = get_workspace_client()
-    endpoint = _find_endpoint(client)
-
-    # Use the SDK's raw API call for tool support
-    import json as _json
-    from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
-
-    # Build SDK-friendly messages (tool roles need special handling)
-    sdk_messages = []
-    for m in messages:
-        role = m.get("role", "user")
-        content = m.get("content", "") or ""
-        if role == "tool":
-            # Tool result — represent as user message with structured prefix
-            sdk_messages.append(ChatMessage(
-                role=ChatMessageRole.USER,
-                content=f"[Tool result for {m.get('name','tool')} (call {m.get('tool_call_id','')[:8]})]\n{content}",
-            ))
-        elif role == "assistant":
-            # Assistant — may include tool_calls
-            tool_calls = m.get("tool_calls", [])
-            if tool_calls:
-                # Represent tool calls as text the next call can see
-                tc_text = "\n".join([
-                    f"[Tool call: {tc['function']['name']}({tc['function']['arguments']})]"
-                    for tc in tool_calls
-                ])
-                sdk_messages.append(ChatMessage(role=ChatMessageRole.ASSISTANT, content=content + "\n" + tc_text))
-            else:
-                sdk_messages.append(ChatMessage(role=ChatMessageRole.ASSISTANT, content=content))
-        elif role == "system":
-            sdk_messages.append(ChatMessage(role=ChatMessageRole.SYSTEM, content=content))
-        else:
-            sdk_messages.append(ChatMessage(role=ChatMessageRole.USER, content=content))
-
-    # Call with tools via raw HTTP since SDK doesn't expose tools cleanly
-    import urllib.request
-    import urllib.error
-    workspace_host = client.config.host.rstrip("/")
-    token = client.config.authenticate().get("Authorization", "").replace("Bearer ", "")
-
-    payload = {
-        "messages": [{"role": m.get("role"), "content": m.get("content"),
-                      **({"tool_calls": m["tool_calls"]} if m.get("tool_calls") else {}),
-                      **({"tool_call_id": m["tool_call_id"]} if m.get("tool_call_id") else {}),
-                      **({"name": m["name"]} if m.get("name") else {})}
-                     for m in messages],
-        "tools": tools,
-        "max_tokens": max_tokens,
-        "temperature": 0.2,
-    }
-
-    req = urllib.request.Request(
-        f"{workspace_host}/serving-endpoints/{endpoint}/invocations",
-        data=_json.dumps(payload).encode(),
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = _json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()[:500]
-        raise RuntimeError(f"LLM call failed: {e.code} — {body}")
-
-    msg = data.get("choices", [{}])[0].get("message", {})
-    usage = data.get("usage", {})
-    return {
-        "message": msg,
-        "model_used": endpoint,
-        "input_tokens": usage.get("prompt_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0),
-    }
-
-
-async def call_with_tools(messages: list, tools: list, agent_name: str = "supervisor") -> dict:
-    """Async wrapper for tool-calling LLM."""
-    import asyncio
-    return await asyncio.to_thread(_call_llm_with_tools, messages, tools, agent_name)
+# NOTE: A raw-HTTP tool-calling helper (`call_with_tools`) used to live here. It
+# extracted the bearer token by hand and hit the invocations API directly. It had
+# no callers — agentic tool-calling now lives in the Mosaic AI Agent Framework
+# agent (src/07_AI_Agents/register_agents.py), which does tool-calling natively
+# over governed UC functions. The dead helper was removed (security review 5.3):
+# nothing in the app should hand-extract auth tokens.
 
 
 def reset_endpoint_cache():
