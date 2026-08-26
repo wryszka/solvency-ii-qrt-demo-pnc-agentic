@@ -9,6 +9,7 @@
  * the governance interface is identical.
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Beaker, Loader2, AlertTriangle, CheckCircle2, Clock,
@@ -56,6 +57,7 @@ export default function ActuarialLab() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="Every model behind the close — native Databricks models and external engines (Prophet, Igloo) — as peer rows under one governance interface: versions, aliases, overlays and lineage." />
       <div className="flex items-start gap-3">
         <Beaker className="w-6 h-6 text-violet-700 mt-0.5" />
         <div className="flex-1">

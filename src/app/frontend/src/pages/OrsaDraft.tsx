@@ -7,6 +7,7 @@
  * chip (live / stable / annual review).
  */
 import { useEffect, useRef, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import { Workflow, Loader2, AlertTriangle, ArrowLeft, Zap, Anchor, Calendar } from 'lucide-react';
 import { renderMarkdownSafe } from '../lib/markdown';
@@ -54,6 +55,7 @@ export default function OrsaDraft() {
 
   return (
     <div className="max-w-7xl mx-auto p-6">
+      <WhatAmISeeing body="A working draft of an ORSA section — the narrative the agent proposes for a scenario, for a human actuary to review, edit and own before it reaches the board." />
       <Link to="/today" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1 mb-3">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Control Tower
       </Link>

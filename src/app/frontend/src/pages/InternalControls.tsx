@@ -5,6 +5,7 @@
  * "AI cannot approve" assertion, and a live audit trail of agent calls.
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Lock, Loader2, AlertTriangle, ShieldCheck, ShieldAlert, ShieldOff, ArrowRight,
@@ -42,6 +43,7 @@ export default function InternalControls() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="The controls that keep the workflow honest — the AI guardrails by layer, the live log of every agent call, and whether each control is currently passing." />
       <div>
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Lock className="w-6 h-6 text-green-700" />

@@ -12,6 +12,7 @@
  * (UC pyfunc, UC function, serving endpoint).
  */
 import { useEffect, useRef, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, ExternalLink, Bot, Send,
@@ -102,6 +103,7 @@ export default function AgentArchitecture() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <WhatAmISeeing body="How the workbench assistant works — one supervisor agent that routes each question to the right specialist, with every call grounded in a governed function and audited." />
       <Link to="/" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Workbench
       </Link>

@@ -24,6 +24,16 @@ governance, same AI applied to pricing, IFRS 17, claims analytics, reinsurance o
 customer analytics, capital steering. Solvency II proves the model; the next workflow extends
 from here.
 
+## Compatibility
+
+**Tier 2 — Serverless-only.** Needs a full Databricks workspace, but every job,
+pipeline, model-serving endpoint and Genie space runs on serverless / scale-to-zero
+primitives — no always-on clusters. It is **not** Free-Edition (Tier 1) because it
+uses Model Serving + the Mosaic AI Agent Framework endpoint + a Genie space, which
+Free Edition doesn't provide. Reinstallable via the bundle (DAB) by pointing
+`catalog_name` / `schema_name` at your workspace. Reviewed against the Bricksurance
+standard **v2.2** — see [`STANDARDS.md`](STANDARDS.md).
+
 ---
 
 Bricksurance SE — a synthetic mid-size European composite (P&C + Life on one balance sheet) —
@@ -125,8 +135,7 @@ The `Makefile` carries shortcuts: `make preflight`, `make bake-cache`, `make dep
 │   ├── preflight_check.sh                # 38 SQL + HTTP probes
 │   ├── bake_cache.sh                     # Pre-bake AI outputs + warm agents
 │   ├── seed_governance.py                # Local seed for 6_gov_* tables
-│   ├── create_dashboard.py               # FEVM Lakeview dashboard
-│   └── create_dashboard_v2.py            # Composite (dev) Lakeview dashboard
+│   └── create_dashboard_v2.py            # Lakeview dashboard (env-driven)
 └── src/
     ├── 00_Generate_Data/                 # Synthetic data + bootstrap + teardown
     ├── 01_Bootstrap_Governance/          # 6_gov_* tables + historical Q1/Q2/Q3 state

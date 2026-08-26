@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Loader2, CheckCircle2, XCircle, ShieldCheck, TrendingUp, Sparkles, Bot, Shield, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import { fetchDqSummary, fetchDqTrends, investigateDqFailures, type Row, type DqTriageResponse } from '../lib/api';
@@ -56,6 +57,7 @@ export default function DataQuality() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <WhatAmISeeing body="The automated data-quality gates on every QRT pipeline — which checks passed, which records were quarantined, and why — before any number reaches a return." />
       <div>
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold text-gray-900">Data Quality Dashboard</h2>

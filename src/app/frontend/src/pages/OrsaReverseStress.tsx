@@ -4,12 +4,14 @@
  * "do you cover RST?" has a credible answer on stage.
  */
 import { Link } from 'react-router-dom';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { ArrowLeft, Workflow, Compass, Cpu, Bot, Sparkles, AlertTriangle } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
 
 export default function OrsaReverseStress() {
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="Reverse stress testing — instead of 'what does this shock do to us?', it asks 'what shock would it take to breach our capital?' and works backwards to that scenario." />
       <Link to="/orsa" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to ORSA
       </Link>

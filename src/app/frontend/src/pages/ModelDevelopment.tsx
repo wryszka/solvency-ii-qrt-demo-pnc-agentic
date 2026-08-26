@@ -6,6 +6,7 @@
  * paths via /api/model-development/* — no hardcoded user paths.
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Beaker, BookOpen, Network, ExternalLink, ArrowRight, Bot,
@@ -49,6 +50,7 @@ export default function ModelDevelopment() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-4">
+      <WhatAmISeeing body="Where models come from — the native models, the worked-example notebooks that explain the method, and the integrations that bring external engines in." />
       <header>
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">

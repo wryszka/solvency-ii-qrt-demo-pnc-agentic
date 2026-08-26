@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { useNavigate } from 'react-router-dom';
 import {
   Loader2, Send, Bot, User, ChevronDown, ChevronRight,
@@ -165,6 +166,7 @@ export default function RegulatorQA() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-4">
+      <WhatAmISeeing body="A place to answer a regulator's follow-up question against the governed data — the draft answer, the figures behind it, and the source each number came from." />
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Regulatory AI</h2>

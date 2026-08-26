@@ -4,6 +4,7 @@ import {
   Sparkles, Shield, ChevronDown, ChevronUp, BarChart3, Database, GitCompare, Workflow, Scale,
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import Q4PainCallouts from '../components/Q4PainCallouts';
 import ControlTowerHero, { type HealthLevel } from '../components/ControlTowerHero';
@@ -15,7 +16,7 @@ import { ProcessOverview, DataInventory } from './Governance';
 
 type MonitorTab = 'overview' | 'ingestion' | 'reconciliation' | 'process' | 'catalog';
 
-export default function Monitor({ initialTab = 'overview' }: { initialTab?: MonitorTab } = {}) {
+export default function Monitor({ initialTab = 'overview', embedded = false }: { initialTab?: MonitorTab; embedded?: boolean } = {}) {
   const [sla, setSla] = useState<Row[]>([]);
   const [dq, setDq] = useState<{ data: Row[]; aggregate: Row | null }>({ data: [], aggregate: null });
   const [recon, setRecon] = useState<Row[]>([]);
@@ -89,6 +90,9 @@ export default function Monitor({ initialTab = 'overview' }: { initialTab?: Moni
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-4">
+      {!embedded && (
+        <WhatAmISeeing body="The health of every reporting pipeline and data-quality gate in one place — what ran, what passed its checks, what's late, and where a feed missed its deadline." />
+      )}
       {/* Hero strip — quarter, deadline, traffic-light health, three meaningful KPIs */}
       {periodState && (() => {
         const reconMismatches = recon.filter((r) => r.status !== 'MATCH').length;

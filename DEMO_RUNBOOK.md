@@ -52,6 +52,61 @@ Both must pass. If preflight fails on a scene used in your selected matrix row, 
 
 ---
 
+# Runsheet — GO · DO · SAY · IF-ASKED (quick reference)
+
+Glance-readable version of the beats below. **GO** = where to click · **DO** = the one
+action · **SAY** = audience words (≤20, key numbers **bold**, no product names) ·
+**IF ASKED / IF FAILS** = fallback + the `docs/DEMO_QA.md` question to reach for. The
+full narration for each beat is in the numbered script that follows.
+
+> **Per-beat timings are planning estimates**, not measured — replace with measured
+> medians over **3 dry runs** before a live delivery. They sum to the 25-minute slot;
+> the "cut" column is the 15-minute path.
+
+### Beat 0 · Open — verbatim · ~3:00 (cut 2:00)
+- **GO:** Stage front, title slide. No app yet.
+- **DO:** Deliver the locked opening (§1) word-for-word. Land the "nobody owns the whole thing" beat, then: *"Let's go to the Monday after Q4 close."*
+- **SAY:** "Who owns your **whole** Solvency II process — data to disclosure? Usually **nobody**. Today, somebody does."
+- **IF ASKED / FAILS:** Opening needs no app, so a cold projector doesn't block you. "Are you replacing our tools?" → DEMO_QA §A7 (peer-row meaning).
+
+### Beat 1 · Control Tower · ~3:30 (cut 2:00)
+- **GO:** Sidebar → Control Tower (`/monitor`).
+- **DO:** Let the hero strip settle two beats. Read the seven Q4 attention items top-to-bottom (Pains A–G). **Fix nothing** — the point is visibility.
+- **SAY:** "The **Monday-morning** view nobody has today — every problem on **one** screen, not buried **six** clicks down."
+- **IF ASKED / FAILS:** Empty tile → flip sidebar **Live | Cached**; last resort `docs/demo_fallbacks/index.html`. "What if Pain G goes undetected?" → DEMO_QA (executive, risk-of-inaction). *[cut: skip the Pain F/G read-through, just point.]*
+
+### Beat 2 · Senior Reserving Actuary + Overlays · ~4:30 (cut 3:00)
+- **GO:** Sidebar → Actuarial Lab → Reserving — P&C (`/lab/reserving_pnc`).
+- **DO:** "Run reserving review" → let it stream → read **"This decision is yours"** → "Create overlay from this suggestion" → edit the rationale → "Submit for approval" → "approve" the row that flashes.
+- **SAY:** "The assistant **proposes** the overlay — magnitude, rationale. **The actuary decides.** Both captured, fully audited."
+- **IF ASKED / FAILS:** Stalls → flip to **Cached** (the review is pre-baked). "Where are the reserving diagnostics / who can create overlays?" → DEMO_QA §A1 + platform Q. *[cut: keep the stream + modal; skip the approve click.]*
+
+### Beat 3 · Audit panel on a QRT · ~4:00 (cut 2:30)
+- **GO:** Sidebar → Reserving & TPs (P&C) → `/report/s0501` → **Audit** tab.
+- **DO:** Walk Data → Code → Models → Approvals & Overlays (point at the storm overlay just created) → Lineage (hover a node; unrelated nodes dim).
+- **SAY:** "Every disclosure carries its own audit — sources, code, models, **overlays**, lineage. The audit **is** the artefact."
+- **IF ASKED / FAILS:** Lineage SVG slow → narrate from the Data tab; fallback static page. "What if the AI invents a number?" → DEMO_QA §A4 + citations Q. *[cut: Data + Lineage tabs only.]*
+
+### Beat 4 · ORSA scenario run · ~5:00 (cut 3:30)
+- **GO:** Sidebar → ORSA (`/orsa`).
+- **DO:** Pick **1-in-200 nat cat** → "Run scenario" → capital-path chart reveals → "Generate narrative" → the saved stamp appears.
+- **SAY:** "**Six weeks** of Excel and drafting becomes a **thirty-second** run and a board-ready paragraph. Not faster — **coherent**."
+- **IF ASKED / FAILS:** Pre-stage one run before stage; if the narrative stalls, show a baked one (**Cached**). "How do you stop the ORSA narrative being wrong?" → DEMO_QA §A4. *[cut: arrive with a scenario pre-run; skip fresh narrative.]*
+
+### Beat 5 · Actuarial Workbench landing · ~2:30 (cut 1:30)
+- **GO:** Sidebar brand → "Actuarial Workbench" (`/`).
+- **DO:** Pick 2–3 tiles for the audience (matrix §6). Two beats each. Hover the in-progress tiles. Pause on the grid — don't talk over it.
+- **SAY:** "You didn't buy a Solvency II tool — you bought a **workbench**. The next workflow you're under pressure on extends from here."
+- **IF ASKED / FAILS:** Grid is static — safe. "IFRS 17 / multi-entity group?" → runbook tangents + DEMO_QA. *[cut: open landing, closing line over the grid, move on.]*
+
+### Beat 6 · Close — verbatim · ~2:30 (cut 2:00)
+- **GO:** Stage front, or leave the landing up.
+- **DO:** Deliver the locked close (§7). Land understated on the last line.
+- **SAY:** "**Same** regulation, **less** tax. Same Igloo, same Prophet — the **integration tax** is what we removed."
+- **IF ASKED / FAILS:** n/a — you're closing. Bank overflow questions for after.
+
+---
+
 # 25-minute talk script
 
 ## 1. Open — verbatim · 0:00–3:00

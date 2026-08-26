@@ -8,6 +8,7 @@
  *   - View as-of         → same QRT page but with the period's audit snapshot
  */
 import { useEffect, useMemo, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Archive as ArchiveIcon, Download, ExternalLink, Search, Filter,
@@ -62,6 +63,7 @@ export default function Archive() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="The history of what was submitted — each period and QRT, when it went out, who signed it off, and its data quality at the time. The record you'd reopen in an audit." />
       <header className="flex items-start gap-3">
         <ArchiveIcon className="w-6 h-6 text-amber-700 mt-0.5" />
         <div className="flex-1">

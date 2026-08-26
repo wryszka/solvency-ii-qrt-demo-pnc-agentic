@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Scale, BarChart3, Database, ShieldCheck, FileSearch,
@@ -56,6 +57,7 @@ export default function Governance() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-4">
+      <WhatAmISeeing body="The operational home for the audit trail — every approval, model change, AI call and internal control in one place, each traceable back to who did it and when." />
       <header>
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center">

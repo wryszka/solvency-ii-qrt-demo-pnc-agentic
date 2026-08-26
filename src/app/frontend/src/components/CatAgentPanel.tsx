@@ -77,6 +77,13 @@ export default function CatAgentPanel() {
         </button>
       </header>
 
+      <p className="text-[11px] text-slate-500 leading-relaxed border-l-2 border-slate-200 pl-2.5">
+        <span className="font-semibold text-slate-600">How this is validated in production:</span> the stochastic
+        tail would be reconciled model-vs-experience — prior-quarter forecast against actual claims, plus a
+        VaR/TVaR goodness-of-fit — before the cat charge is accepted. Here the Igloo output is pre-computed
+        sample data, so that reconciliation is illustrative.
+      </p>
+
       {error && (
         <div className="bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700 flex items-start gap-2">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {error}

@@ -9,6 +9,7 @@
  *   5. The audit trail — where every decision lands
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Scale, ScrollText, Lock, Workflow, ArrowRight, ArrowLeft,
@@ -29,6 +30,7 @@ export default function Pillar2Overview() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-7">
+      <WhatAmISeeing body="Pillar 2 — governance and risk management: the ORSA, model governance, the actuarial function and internal controls that stand behind the numbers." />
       <Link to="/reporting-cycle" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Reporting Cycle
       </Link>

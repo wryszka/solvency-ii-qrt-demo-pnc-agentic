@@ -75,6 +75,45 @@ four open P0s, migrated the agents onto the framework, and fixed the security it
 ### Cut
 - **`src/05_AI_Agents/` deleted** — stale duplicate agent-registration path,
   superseded by `07_AI_Agents/` and referenced nowhere (senior-dev 4.1).
+- **`scripts/create_dashboard.py` dropped** in favour of `create_dashboard_v2.py`
+  (env-driven; v1 hardcoded workspace/catalog/warehouse IDs). `deploy_demo.sh`
+  already calls v2 only; README structure updated (senior-dev cut-list 4.2). The
+  historical `docs/REDEPLOYABILITY_AUDIT.md` still cites v1 by path as a record of
+  the fixed issue — left as-is.
+
+### Design language — Tailwind + pillar palette (justified deviation)
+- **Decision.** The app keeps its React / **Tailwind v4** implementation with a
+  deliberate **pillar palette** (pillar-1 Capital blue `#1e40af`, pillar-2
+  Governance green, pillar-3 Disclosure amber, cross slate) layered on the same
+  slate/ink base + semantic emerald/amber/red as the house system — rather than the
+  house standard's vanilla-CSS `--ink/--brand` tokens and named `.chip/.act/.ghost`
+  classes.
+- **Why it's compliant.** The standard is "mirror, don't invent" **and** "deviations
+  must be justified in DECISIONS.md." The pillar palette is a coherent *extension*
+  for a four-pillar Solvency II workbench (the pillars are the product's own mental
+  model), not a random invention; base neutrals, semantic colours, card/shadow
+  idioms and type hierarchy all mirror the house language. A full repaint to the
+  literal token/class names was **deliberately not done** — it would degrade a
+  coherent, shipped design for no user-visible benefit.
+- **Corrected to spec.** Sidebar width **268 → 252px** (`App.tsx`) to match the
+  standard's fixed sidebar. "What am I seeing?" explainers added across the data
+  screens (Scorecard F P0). (UI/UX review 8.1–8.3.)
+
+### Compatibility tier
+- **Tier 2 — Serverless-only** (declared in `README.md` + `STANDARDS.md`). Needs a
+  full workspace; every job/pipeline/serving-endpoint/Genie space is serverless /
+  scale-to-zero. Not Tier 1 (Free Edition) because Model Serving, the Mosaic AI
+  Agent Framework endpoint and Genie aren't available there. (SA 3.6.)
+
+### Standards pointer + run material
+- **`STANDARDS.md` added** — pointer to `wryszka/bricksurance-playbook`
+  `BUILD_AND_REVIEW.md`, reviewed against standard **v2.2 — 2026-08-26**. The demo
+  never copies the standard (single canonical location). (Scorecard H.)
+- **`DEMO_RUNBOOK.md` amended** (not duplicated — it is the run doc already plumbed
+  into the actuarial workbench) with a **GO · DO · SAY · IF-ASKED** quick-reference
+  runsheet + per-beat timing estimates, cross-referenced to `docs/DEMO_QA.md`.
+  Timings are marked planning estimates pending measured medians over 3 dry runs.
+  (SA blocker 3.1, 3.4.)
 
 ---
 

@@ -12,6 +12,7 @@
  * only in what it shows: MLflow versions for native, alias rows for external.
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link, useParams } from 'react-router-dom';
 import {
   Beaker, ArrowLeft, Loader2, AlertTriangle, CheckCircle2, XCircle,
@@ -76,6 +77,7 @@ export default function LabModelDetail() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="A single model up close — its method, versions and aliases, the data it reads, and its lineage. For external engines this is the governance wrapper around a peer tool." />
       <Link to="/lab" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Lab
       </Link>

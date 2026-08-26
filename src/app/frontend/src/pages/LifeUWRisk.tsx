@@ -6,6 +6,7 @@
  * key Q4 2025 demo signal (Pain D).
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import { FlaskConical, AlertTriangle, ArrowLeft } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
@@ -81,6 +82,7 @@ export default function LifeUWRisk() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="The life underwriting-risk capital charge — mortality, longevity, lapse, expense and life-cat sub-modules — driven here by the (illustrative) Prophet output." />
       <Link to="/reporting-cycle" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Reporting Cycle
       </Link>

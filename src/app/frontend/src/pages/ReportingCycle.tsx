@@ -7,6 +7,7 @@
  * Breadcrumb.
  */
 import { Link } from 'react-router-dom';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { useEffect, useState } from 'react';
 import {
   Shield, BarChart3, BookOpen, Flame, FlaskConical, Landmark,
@@ -85,6 +86,7 @@ export default function ReportingCycle() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="Solvency II laid out the way the regulation is — the three pillars and every deliverable under them. Click any item to open the real artefact behind it." />
       <header>
         <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Reporting Cycle</h2>
         <p className="text-sm text-gray-500 mt-1.5 leading-relaxed max-w-3xl">

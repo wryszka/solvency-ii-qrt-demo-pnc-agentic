@@ -13,6 +13,7 @@
  *   4. Generated narrative + version history
  */
 import { useEffect, useMemo, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Workflow, AlertTriangle, Sparkles, Loader2, Play, RefreshCw, CheckCircle2, FileText, ArrowRight,
@@ -140,6 +141,7 @@ export default function Orsa() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="The Own Risk and Solvency Assessment — how capital and the solvency ratio hold up under stress across the business-plan horizon, base case versus each scenario." />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

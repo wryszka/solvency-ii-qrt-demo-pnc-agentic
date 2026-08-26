@@ -16,6 +16,7 @@
  * `INSERT` against `6_gov_overlays`.
  */
 import { useEffect, useMemo, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Layers, Loader2, AlertTriangle, Plus, CheckCircle2, Clock, XCircle, ArrowRightLeft, Filter } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
 import {
@@ -123,6 +124,7 @@ export default function OverlaysRegister() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="The register of expert-judgement overlays — manual adjustments an actuary applies on top of a model, each with a reason, an owner and an approval status. Proposed here, signed off by a human." />
       <div className="flex items-start gap-3">
         <Layers className="w-6 h-6 text-violet-700 mt-0.5" />
         <div className="flex-1">

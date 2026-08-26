@@ -7,6 +7,7 @@
  * human review/edit/approve workflow.
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import { ScrollText, Loader2, AlertTriangle, ArrowRight } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
@@ -124,6 +125,7 @@ export default function Afr() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="The Actuarial Function Report (Article 48) — the actuarial function's opinion on technical provisions, underwriting and reinsurance, drafted from the close and signed off by a human." />
       <div>
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <ScrollText className="w-6 h-6 text-green-700" />

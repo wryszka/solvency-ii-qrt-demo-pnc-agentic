@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Loader2, ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
 import { fetchEmbeds } from '../lib/api';
 
@@ -30,6 +31,9 @@ export default function Genie() {
 
   return (
     <div className={`${fullscreen ? 'fixed inset-0 z-50 bg-white' : 'max-w-6xl mx-auto p-6 space-y-4'}`}>
+      {!fullscreen && (
+        <WhatAmISeeing body="Ask the book in plain English. Genie turns your question into SQL over the governed Unity Catalog tables and shows you both the answer and the query behind it." />
+      )}
       {/* Header */}
       <div className={`flex items-center justify-between ${fullscreen ? 'px-4 py-2 border-b border-gray-200 bg-gray-50' : ''}`}>
         <div>

@@ -11,8 +11,9 @@
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Layers, Clock, ChevronRight, Zap, Sparkles, Activity } from 'lucide-react';
+import { Layers, Clock, ChevronRight, Zap, Sparkles, Activity, AlertTriangle } from 'lucide-react';
 import Monitor from './Monitor';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import TodaySolvencyTile from '../components/TodaySolvencyTile';
 import TodayOrsaTile from '../components/TodayOrsaTile';
 import TodayPendingDecisionsTile from '../components/TodayPendingDecisionsTile';
@@ -36,6 +37,20 @@ export default function Today() {
         </div>
       </header>
 
+      <div className="max-w-6xl mx-auto px-6 pt-2 space-y-2">
+        <WhatAmISeeing body="The Monday-morning view of the close. Each tile is a live signal — late feeds, pending sign-offs, capital movements, reconciliation flags — surfaced the moment it matters, so nothing waits for someone to go looking." />
+        <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600" />
+          <span>
+            <strong>Why this matters.</strong> Left to manual triage, a signal like a reserve-vs-capital
+            divergence can surface late — after it has flowed into S.05.01, S.12.01 and S.25.01 — risking an
+            audit finding, a possible capital add-on, and a multi-week re-close. Seen here on day one, the
+            same close that used to take <strong>~6 weeks</strong> of manual assembly is worked in minutes,
+            freeing senior-actuary time for judgement rather than plumbing. <em>(Illustrative — figures are synthetic.)</em>
+          </span>
+        </div>
+      </div>
+
       {/* Headline tiles — three operational reads: today's solvency, worst-stress
           posture, and what's awaiting human sign-off. */}
       <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-4 pb-2">
@@ -45,8 +60,9 @@ export default function Today() {
       </div>
 
       {/* Monitor (existing Control Tower) is the heart of the page.
-          Late feeds are merged into Q4PainCallouts inside the overview tab. */}
-      <Monitor />
+          Late feeds are merged into Q4PainCallouts inside the overview tab.
+          `embedded` suppresses Monitor's own "What am I seeing?" — Today shows one above. */}
+      <Monitor embedded />
 
       {/* Below: quick-link strips that surface what's moving today */}
       <div className="max-w-6xl mx-auto px-6 pb-8 -mt-2">

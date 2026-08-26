@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { useParams, Link } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, Download, CheckCircle2, XCircle, Send,
@@ -55,6 +56,7 @@ export default function ReportDetail() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-4">
+      <WhatAmISeeing body="One QRT up close — its figures, how each cell was built from the governed tables, the audit trail behind it, and the model and overlays that were signed off." />
       <div className="flex items-center gap-3">
         <Link to="/reporting-cycle"
           title="Back to Reporting Cycle"

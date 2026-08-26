@@ -11,6 +11,7 @@
  *   6. The sign-off chain — who certifies what
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import {
   Archive as ArchiveIcon, Newspaper, FileText, Bot,
@@ -33,6 +34,7 @@ export default function Pillar3Overview() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-7">
+      <WhatAmISeeing body="Pillar 3 — disclosure: the QRTs, the SFCR and the RSR, plus the cross-checks that keep them consistent before anything is submitted." />
       <Link to="/reporting-cycle" className="text-xs text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Reporting Cycle
       </Link>

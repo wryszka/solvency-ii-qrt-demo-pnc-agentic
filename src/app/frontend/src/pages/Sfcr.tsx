@@ -6,6 +6,7 @@
  * endpoints) backs the RSR page.
  */
 import { useEffect, useState } from 'react';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 import { Link } from 'react-router-dom';
 import { Newspaper, Loader2, AlertTriangle, ArrowRight } from 'lucide-react';
 import PillarChip from '../components/PillarChip';
@@ -176,6 +177,7 @@ export function SfcrLikePage(props: SfcrLikePageProps) {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body={`The ${props.docTitle} — ${props.docName === 'RSR' ? 'the confidential report to the supervisor' : 'the public disclosure'}. Each section is drafted from the governed close figures; a human reviews and signs off before anything is filed.`} />
       <div>
         <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Icon className="w-6 h-6 text-amber-700" />

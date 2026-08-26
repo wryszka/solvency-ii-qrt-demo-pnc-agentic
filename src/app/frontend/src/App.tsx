@@ -140,7 +140,7 @@ function DoorRow({ door }: { door: DoorLink }) {
 
 function Sidebar() {
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-[268px] bg-[#1e293b] text-white flex flex-col">
+    <aside className="fixed left-0 top-0 bottom-0 w-[252px] bg-[#1e293b] text-white flex flex-col">
       {/* Brand — links back to the Workbench (top-level /) */}
       <Link to="/" className="flex items-center gap-3 px-4 py-3.5 border-b border-white/10 hover:opacity-90 transition-opacity">
         <FileText className="w-5 h-5 text-blue-400 shrink-0" />
@@ -275,7 +275,7 @@ export default function App() {
     <BrowserRouter>
       <div className="min-h-screen bg-gray-100 font-[system-ui]">
         <Sidebar />
-        <main className="ml-[268px]">
+        <main className="ml-[252px]">
           <ScrollToHash />
           <BreadcrumbStrip />
           <Routes>
