@@ -28,7 +28,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from databricks.sdk.service.sql import StatementParameterListItem
 from fastapi import APIRouter, HTTPException, Query, Request

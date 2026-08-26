@@ -11,6 +11,7 @@ import { renderMarkdownSafe } from '../lib/markdown';
 import { useStreamedText } from '../lib/hooks/useStreamedText';
 import { runWhatif, fetchCyberBook, formatEur, type Row } from '../lib/api';
 import UnderTheHood from '../components/UnderTheHood';
+import WhatAmISeeing from '../components/WhatAmISeeing';
 
 interface WhatifResult {
   run_id: string;
@@ -62,6 +63,7 @@ export default function Whatif() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
+      <WhatAmISeeing body="A what-if workspace: pick a strategic scenario (e.g. doubling the cyber book over 12 months) and the standard-formula engine projects the capital impact live. A contrarian reviewer then pressure-tests the assumptions — so you see the trade-off and the counter-argument before it reaches a board paper." />
       <header className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
           <CircleHelp className="w-5 h-5 text-blue-700" />

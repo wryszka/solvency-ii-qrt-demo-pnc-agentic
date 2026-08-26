@@ -124,6 +124,11 @@ These are the incumbent-champion objections from the demo review. None can be *d
 
 **A:** The ORSA section that used to be six weeks of Excel and three days of drafting is a thirty-second scenario run and a board-grade paragraph grounded in your own numbers. But the honest headline isn't speed — it's **coherence and traceability**: the data lives in one place, governance is one motion, the AI is grounded in your figures, and the audit travels with the artefact. Faster is the by-product; owning the whole view is the point.
 
+### 21. "Won't a junior analyst just click Approve on a €50M overlay? Where's the policy gate?"
+**Persona:** practitioner (incumbent champion) · **Beat:** Governance / Overlays Register · **Source:** `src/app/server/routes/overlays.py` (magnitude thresholds), `src/app/server/routes/approvals.py` (submitter≠reviewer segregation)
+
+**A:** Straight answer: today the **magnitude thresholds are advisory** — `overlays.py` tags an overlay for chief-actuary sign-off above ~€1M and board sign-off above ~€10M, and the QRT approval flow **does** enforce segregation of duties (the submitter cannot be the reviewer, `approvals.py`), but the overlay thresholds themselves are not yet enforced server-side as a hard gate. That's an honest gap and it's **roadmapped**: the same append-only governed-decision pattern (maker/checker rows + UC privileges so only the actuarial-function role can approve above a threshold) extends to overlays — it's an application-policy + UC-grant change, not a new capability. What is real today is the **audit trail**: every overlay records who created it, its magnitude, its status and its lifecycle, so nothing is untraceable even before the hard gate lands. This is exactly the kind of "yes, but…" we document rather than dodge.
+
 ---
 
 *This tab is the source of record for questions the live demo can't answer. Keep it in sync with `DEMO_RUNBOOK.md` beats and the schema/code it cites.*

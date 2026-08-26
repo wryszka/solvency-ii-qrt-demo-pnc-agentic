@@ -55,11 +55,11 @@ async def get_approval(qrt_id: str):
         raise HTTPException(404, "Unknown QRT")
     try:
         await ensure_approvals_table()
-        rows = await execute_query(f"""
-            SELECT * FROM {fqn('6_ai_approvals')}
-            WHERE qrt_id = '{qrt_id}'
-            ORDER BY submitted_at DESC LIMIT 1
-        """)
+        rows = await execute_query(
+            f"SELECT * FROM {fqn('6_ai_approvals')} "
+            "WHERE qrt_id = :qrt_id ORDER BY submitted_at DESC LIMIT 1",
+            parameters=[StatementParameterListItem(name="qrt_id", value=qrt_id, type="STRING")],
+        )
         return {"data": rows[0] if rows else None}
     except Exception as exc:
         logger.exception("Failed to fetch approval for %s", qrt_id)
